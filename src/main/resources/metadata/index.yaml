@@ -1,8 +1,8 @@
 group: io.kestra.plugin.metabase
 name: "metabase"
 title: "Metabase"
-description: "Metabase plugin for Kestra"
-body: ""
+description: "Run saved questions and native queries, sync database schemas, and watch dashboards in Metabase from Kestra."
+body: "Use `cards.Run` and `queries.Run` to pull rows into a flow, `databases.SyncSchema` and `databases.RescanValues` to refresh Metabase metadata after a load, and `dashboards.List`, `dashboards.Get` and `dashboards.Trigger` to read dashboards or react when one changes. Every task needs the Metabase `url` and exactly one authentication mode: an `apiKey` (Metabase v0.47 or later), a `sessionToken`, or a `username` with its `password`."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"

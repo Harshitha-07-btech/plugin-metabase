@@ -12,9 +12,17 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.IntStream;
 
 public class MetabaseMockServer implements AutoCloseable {
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
+
+    public static final int EXPORT_ROWS = 5000;
+    private static final Map<String, Object> FAILED_QUERY = Map.of(
+        "status", "failed",
+        "error", "ERROR: relation \"missing_table\" does not exist",
+        "row_count", 0
+    );
 
     private final HttpServer server;
     private final List<Map<String, Object>> dashboards = new CopyOnWriteArrayList<>();
@@ -74,6 +82,46 @@ public class MetabaseMockServer implements AutoCloseable {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
             recordedRequests.add(new RecordedRequest(method, path, exchange.getRequestHeaders(), body));
+
+            if ("bad-key".equals(exchange.getRequestHeaders().getFirst("x-api-key"))) {
+                sendJson(exchange, 401, Map.of("message", "Unauthenticated"));
+                return;
+            }
+
+            if ("DELETE".equalsIgnoreCase(method) && "/api/session".equals(path)) {
+                exchange.sendResponseHeaders(204, -1);
+                exchange.close();
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method) && "/api/card/11/query".equals(path)) {
+                sendJson(exchange, 202, FAILED_QUERY);
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method) && "/api/dataset".equals(path) && body.contains("FAIL_ME")) {
+                sendJson(exchange, 202, FAILED_QUERY);
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method) && "/api/card/10/query/json".equals(path)) {
+                sendJson(exchange, 200, List.of(
+                    Map.of("id", 101, "title", "First Item"),
+                    Map.of("id", 102, "title", "Second Item"),
+                    Map.of("id", 103, "title", "Third Item")
+                ));
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method) && "/api/card/12/query/json".equals(path)) {
+                sendJson(exchange, 200, IntStream.range(0, EXPORT_ROWS).mapToObj(i -> Map.of("id", i)).toList());
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method) && "/api/dataset/json".equals(path)) {
+                sendJson(exchange, 200, List.of(Map.of("total", 42), Map.of("total", 43)));
+                return;
+            }
 
             if ("POST".equalsIgnoreCase(method) && "/api/session".equals(path)) {
                 sendJson(exchange, 200, Map.of("id", "test-session-token-xyz"));

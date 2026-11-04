@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 class CardsTest {
@@ -47,10 +48,10 @@ class CardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .cardId(Property.of(10))
-            .fetchType(Property.of(FetchType.FETCH))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH))
             .build();
 
         QueryOutput output = task.run(runContext);
@@ -70,10 +71,10 @@ class CardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .cardId(Property.of(10))
-            .fetchType(Property.of(FetchType.FETCH_ONE))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 
         QueryOutput output = task.run(runContext);
@@ -91,15 +92,15 @@ class CardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .cardId(Property.of(10))
-            .fetchType(Property.of(FetchType.STORE))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.STORE))
             .build();
 
         QueryOutput output = task.run(runContext);
 
-        assertThat(output.getSize(), is(2L));
+        assertThat(output.getSize(), is(3L));
         assertThat(output.getUri(), notNullValue());
         assertThat(output.getRows(), nullValue());
         assertThat(output.getRow(), nullValue());
@@ -110,7 +111,7 @@ class CardsTest {
             FileSerde.read(is, deserializedRows::add);
         }
 
-        assertThat(deserializedRows, hasSize(2));
+        assertThat(deserializedRows, hasSize(3));
         @SuppressWarnings("unchecked")
         Map<String, Object> first = (Map<String, Object>) deserializedRows.get(0);
         assertThat(first.get("id"), is(101));
@@ -122,10 +123,10 @@ class CardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .cardId(Property.of(10))
-            .fetchType(Property.of(FetchType.NONE))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.NONE))
             .build();
 
         QueryOutput output = task.run(runContext);
@@ -134,5 +135,73 @@ class CardsTest {
         assertThat(output.getRow(), nullValue());
         assertThat(output.getRows(), nullValue());
         assertThat(output.getUri(), nullValue());
+    }
+
+    @Test
+    void testCardRunFailedQueryThrowsMetabaseError() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(11))
+            .build();
+
+        var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(e.getMessage(), containsString("missing_table"));
+    }
+
+    @Test
+    void testCardRunUnauthorizedExplainsCredentials() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("bad-key"))
+            .cardId(Property.ofValue(10))
+            .build();
+
+        var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(e.getMessage(), allOf(containsString("401"), containsString("credentials")));
+    }
+
+    @Test
+    void testCardRunUnknownCardExplainsId() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(999))
+            .build();
+
+        var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(e.getMessage(), allOf(containsString("404"), containsString("id")));
+    }
+
+    @Test
+    void testCardRunStoreUsesExportEndpointWithFormParameters() throws Exception {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(10))
+            .parameters(Property.ofValue(List.of(Map.of("type", "category", "value", "x"))))
+            .fetchType(Property.ofValue(FetchType.STORE))
+            .build();
+
+        task.run(runContextFactory.of(Map.of()));
+
+        var request = server.getRecordedRequests().getFirst();
+        assertThat(request.path(), is("/api/card/10/query/json"));
+        assertThat(request.headers().get("Content-Type").getFirst(), startsWith("application/x-www-form-urlencoded"));
+        assertThat(request.body(), allOf(containsString("parameters="), containsString("format_rows=false")));
+    }
+
+    @Test
+    void testCardRunStoreIsNotCappedAt2000Rows() throws Exception {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(12))
+            .fetchType(Property.ofValue(FetchType.STORE))
+            .build();
+
+        var output = task.run(runContextFactory.of(Map.of()));
+
+        assertThat(output.getSize(), is((long) MetabaseMockServer.EXPORT_ROWS));
     }
 }

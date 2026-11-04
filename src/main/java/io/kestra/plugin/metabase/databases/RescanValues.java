@@ -7,11 +7,14 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.models.DatabaseActionResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 @SuperBuilder
@@ -21,7 +24,8 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @Schema(
     title = "Trigger Metabase database field values rescan",
-    description = "Triggers a field values rescan (`POST /api/database/{id}/rescan_values`) for a specified database in Metabase."
+    description = """
+            Triggers a field values rescan (`POST /api/database/{id}/rescan_values`) for a specified database in Metabase."""
 )
 @Plugin(
     examples = {
@@ -46,7 +50,8 @@ public class RescanValues extends AbstractMetabaseTask implements RunnableTask<R
 
     @Schema(
         title = "Database ID",
-        description = "The ID of the Metabase database to rescan field values for."
+        description = """
+            The ID of the Metabase database to rescan field values for."""
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -54,15 +59,16 @@ public class RescanValues extends AbstractMetabaseTask implements RunnableTask<R
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Integer renderedDatabaseId = runContext.render(this.databaseId).as(Integer.class).orElseThrow();
-        runContext.logger().info("Triggering field values rescan for Metabase database ID {}", renderedDatabaseId);
+        var rDatabaseId = runContext.render(this.databaseId).as(Integer.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'databaseId' is required, set the id of the Metabase database."));
+        runContext.logger().info("Triggering field values rescan for Metabase database ID {}", rDatabaseId);
 
-        try (MetabaseClient client = createClient(runContext)) {
-            client.post("/api/database/" + renderedDatabaseId + "/rescan_values", null, DatabaseActionResponse.class);
+        try (var client = createClient(runContext)) {
+            client.post("/api/database/%d/rescan_values".formatted(rDatabaseId), null, DatabaseActionResponse.class);
         }
 
         return Output.builder()
-            .databaseId(renderedDatabaseId)
+            .databaseId(rDatabaseId)
             .success(true)
             .build();
     }
@@ -72,13 +78,15 @@ public class RescanValues extends AbstractMetabaseTask implements RunnableTask<R
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Database ID",
-            description = "The ID of the database that was rescanned."
+            description = """
+            The ID of the database that was rescanned."""
         )
         private final Integer databaseId;
 
         @Schema(
             title = "Operation success",
-            description = "Whether the field values rescan was successfully triggered."
+            description = """
+            Whether the field values rescan was successfully triggered."""
         )
         private final Boolean success;
     }

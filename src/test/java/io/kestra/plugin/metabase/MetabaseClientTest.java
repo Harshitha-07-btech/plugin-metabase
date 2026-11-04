@@ -15,6 +15,7 @@ import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 class MetabaseClientTest {
@@ -103,5 +104,58 @@ class MetabaseClientTest {
             assertThat(requests.get(1).path(), is("/api/dashboard"));
             assertThat(requests.get(1).headers().get("X-Metabase-Session"), contains("test-session-token-xyz"));
         }
+    }
+
+    @Test
+    void testNoAuthenticationModeIsRejected() {
+        var e = assertThrows(IllegalArgumentException.class, () -> client(null, null, null, null));
+        assertThat(e.getMessage(), allOf(containsString("apiKey"), containsString("sessionToken"), containsString("username")));
+    }
+
+    @Test
+    void testAmbiguousAuthenticationIsRejected() {
+        var e = assertThrows(IllegalArgumentException.class, () -> client("key", "token", null, null));
+        assertThat(e.getMessage(), containsString("Exactly one authentication mode"));
+        assertThat(server.getRecordedRequests(), empty());
+    }
+
+    @Test
+    void testUsernameWithoutPasswordIsRejected() {
+        var e = assertThrows(IllegalArgumentException.class, () -> client(null, null, "admin@example.com", null));
+        assertThat(e.getMessage(), allOf(containsString("username"), containsString("password")));
+    }
+
+    @Test
+    void testSessionCreatedFromCredentialsIsDeletedOnClose() throws Exception {
+        client(null, null, "admin@example.com", "password123").close();
+
+        var requests = server.getRecordedRequests();
+        assertThat(requests, hasSize(2));
+        assertThat(requests.get(1).method(), is("DELETE"));
+        assertThat(requests.get(1).path(), is("/api/session"));
+        assertThat(requests.get(1).headers().get("X-Metabase-Session").getFirst(), is("test-session-token-xyz"));
+    }
+
+    @Test
+    void testProvidedSessionTokenIsNotDeletedOnClose() throws Exception {
+        client(null, "session-token-abc", null, null).close();
+
+        assertThat(server.getRecordedRequests(), empty());
+    }
+
+    @Test
+    void testUnauthorizedAndNotFoundAreTranslated() throws Exception {
+        try (var unauthorized = client("bad-key", null, null, null)) {
+            var e = assertThrows(IllegalStateException.class, () -> unauthorized.get("/api/dashboard"));
+            assertThat(e.getMessage(), allOf(containsString("401"), containsString("credentials")));
+        }
+        try (var client = client("key", null, null, null)) {
+            var e = assertThrows(IllegalStateException.class, () -> client.get("/api/unknown"));
+            assertThat(e.getMessage(), containsString("404"));
+        }
+    }
+
+    private MetabaseClient client(String apiKey, String sessionToken, String username, String password) throws Exception {
+        return new MetabaseClient(runContextFactory.of(Map.of()), server.getUrl(), apiKey, sessionToken, username, password, Duration.ofSeconds(10));
     }
 }

@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ResponseModelsTest {
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
@@ -118,8 +119,18 @@ class ResponseModelsTest {
         List<Map<String, Object>> nullResponse = QueryOutputHelper.parseRows((QueryResponse) null);
         assertThat(nullResponse, empty());
 
-        QueryResponse emptyData = QueryResponse.builder().build();
+        QueryResponse emptyData = QueryResponse.builder().status("completed").build();
         List<Map<String, Object>> emptyDataResponse = QueryOutputHelper.parseRows(emptyData);
         assertThat(emptyDataResponse, empty());
+    }
+
+    @Test
+    void testFailedQueryResponseThrowsWithMetabaseError() throws Exception {
+        var response = MAPPER.readValue("""
+            { "status": "failed", "error": "ERROR: syntax error at position 7", "row_count": 0 }
+            """, QueryResponse.class);
+
+        var e = assertThrows(IllegalStateException.class, () -> QueryOutputHelper.parseRows(response));
+        assertThat(e.getMessage(), containsString("ERROR: syntax error at position 7"));
     }
 }

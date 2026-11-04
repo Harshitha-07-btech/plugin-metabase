@@ -7,21 +7,28 @@ import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.conditions.ConditionContext;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.models.triggers.*;
-import io.kestra.core.runners.RunContext;
-import io.kestra.core.storages.kv.KVStore;
-import io.kestra.core.storages.kv.KVValue;
+import io.kestra.core.models.triggers.AbstractTrigger;
+import io.kestra.core.models.triggers.PollingTriggerInterface;
+import io.kestra.core.models.triggers.TriggerContext;
+import io.kestra.core.models.triggers.TriggerOutput;
+import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
-import io.kestra.plugin.metabase.MetabaseClient;
+import io.kestra.plugin.metabase.MetabaseConnectionInterface;
 import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Map;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @SuperBuilder
@@ -31,7 +38,8 @@ import java.util.Optional;
 @NoArgsConstructor
 @Schema(
     title = "Metabase dashboard polling trigger",
-    description = "Triggers a flow when a Metabase dashboard is created or updated since the last evaluation, maintaining a watermark in the namespace KV store."
+    description = """
+        Triggers a flow when a Metabase dashboard is created or updated since the last evaluation. The watermark is kept in the namespace KV store."""
 )
 @Plugin(
     examples = {
@@ -57,58 +65,68 @@ import java.util.Optional;
         )
     }
 )
-public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output> {
+public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<DashboardsOutput>, MetabaseConnectionInterface {
 
     @Schema(
         title = "Metabase server URL",
-        description = "Base URL of the Metabase instance (e.g. https://metabase.example.com or http://localhost:3000)"
+        description = """
+            Base URL of the Metabase instance, for example `https://metabase.example.com` or `http://localhost:3000`."""
     )
     @PluginProperty(group = "connection")
     @NotNull
     private Property<String> url;
 
     @Schema(
-        title = "Metabase API Key",
-        description = "API key for Metabase authentication (recommended for Metabase v0.47+). Sent in the `x-api-key` header."
+        title = "Metabase API key",
+        description = """
+            API key sent in the `x-api-key` header. Requires Metabase v0.47 or later.
+            Set exactly one authentication mode: `apiKey`, `sessionToken`, or both `username` and `password`."""
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
     private Property<String> apiKey;
 
     @Schema(
-        title = "Metabase Session Token",
-        description = "Session token for Metabase authentication. Sent in the `X-Metabase-Session` header."
+        title = "Metabase session token",
+        description = """
+            Session token sent in the `X-Metabase-Session` header.
+            Set exactly one authentication mode: `apiKey`, `sessionToken`, or both `username` and `password`."""
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
     private Property<String> sessionToken;
 
     @Schema(
-        title = "Metabase Username",
-        description = "Username/email to obtain a session token via `POST /api/session` if API key is not provided."
+        title = "Metabase username",
+        description = """
+            Username or email used to open a session through `POST /api/session`. Must be set together with `password`.
+            The session is closed with `DELETE /api/session` when the evaluation ends."""
     )
     @PluginProperty(group = "connection")
     private Property<String> username;
 
     @Schema(
-        title = "Metabase Password",
-        description = "Password to obtain a session token via `POST /api/session`."
+        title = "Metabase password",
+        description = """
+            Password used to open a session through `POST /api/session`. Must be set together with `username`."""
     )
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
     private Property<String> password;
 
     @Schema(
-        title = "HTTP Request Timeout",
-        description = "Timeout duration for HTTP requests made to Metabase."
+        title = "HTTP request timeout",
+        description = """
+            Connect and read timeout for requests made to Metabase. Defaults to 60 seconds."""
     )
     @PluginProperty(group = "connection")
     @Builder.Default
-    private Property<Duration> timeout = Property.ofValue(Duration.ofSeconds(60));
+    private Property<Duration> timeout = Property.ofValue(DEFAULT_TIMEOUT);
 
     @Schema(
         title = "Polling interval",
-        description = "The interval between polling checks."
+        description = """
+            The interval between polling checks. Defaults to 5 minutes."""
     )
     @PluginProperty(group = "execution")
     @Builder.Default
@@ -116,7 +134,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Schema(
         title = "Trigger on startup",
-        description = "If true, triggers for existing dashboards on initial run. If false (default), sets initial watermark without triggering."
+        description = """
+            If true, the first evaluation fires for all existing dashboards.
+            If false (default), the first evaluation only records the watermark without firing."""
     )
     @PluginProperty(group = "execution")
     @Builder.Default
@@ -129,123 +149,68 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
-        RunContext runContext = conditionContext.getRunContext();
-        String namespace = conditionContext.getFlow().getNamespace();
+        var runContext = conditionContext.getRunContext();
+        var rOnStartup = runContext.render(this.onStartup).as(Boolean.class).orElse(false);
 
-        String renderedUrl = runContext.render(this.url).as(String.class).orElseThrow();
-        String renderedApiKey = runContext.render(this.apiKey).as(String.class).orElse(null);
-        String renderedSessionToken = runContext.render(this.sessionToken).as(String.class).orElse(null);
-        String renderedUsername = runContext.render(this.username).as(String.class).orElse(null);
-        String renderedPassword = runContext.render(this.password).as(String.class).orElse(null);
-        Duration renderedTimeout = runContext.render(this.timeout).as(Duration.class).orElse(Duration.ofSeconds(60));
-        boolean renderedOnStartup = runContext.render(this.onStartup).as(Boolean.class).orElse(false);
+        var kvStore = runContext.namespaceKv(conditionContext.getFlow().getNamespace());
+        var watermarkKey = watermarkKey(context.getFlowId(), context.getTriggerId());
+        var lastWatermark = kvStore.getValue(watermarkKey)
+            .map(kv -> kv.value() != null ? Instant.parse(kv.value().toString()) : null)
+            .orElse(null);
 
-        KVStore kvStore = runContext.namespaceKv(namespace);
-        String watermarkKey = "metabase_dashboards_watermark_" + context.getTriggerId();
-
-        Optional<KVValue> currentKv = kvStore.getValue(watermarkKey);
-        String lastWatermark = currentKv.map(v -> v.value() != null ? v.value().toString() : null).orElse(null);
-
-        java.util.List<DashboardResponse> allDashboards;
-        try (MetabaseClient client = new MetabaseClient(
-            runContext,
-            renderedUrl,
-            renderedApiKey,
-            renderedSessionToken,
-            renderedUsername,
-            renderedPassword,
-            renderedTimeout
-        )) {
-            allDashboards = client.get("/api/dashboard", new TypeReference<java.util.List<DashboardResponse>>() {});
+        List<DashboardResponse> dashboards;
+        try (var client = createClient(runContext)) {
+            dashboards = client.get("/api/dashboard", new TypeReference<List<DashboardResponse>>() {});
         }
 
-        if (allDashboards == null || allDashboards.isEmpty()) {
+        var maxTimestamp = dashboards.stream()
+            .map(Trigger::timestamp)
+            .filter(Objects::nonNull)
+            .max(Instant::compareTo)
+            .orElse(null);
+        if (maxTimestamp == null) {
             return Optional.empty();
         }
 
-        String maxTimestamp = findMaxTimestamp(allDashboards);
-
         if (lastWatermark == null) {
-            // Initial poll
-            if (maxTimestamp != null) {
-                kvStore.put(watermarkKey, new KVValueAndMetadata(null, maxTimestamp));
-            }
-
-            if (!renderedOnStartup) {
+            kvStore.put(watermarkKey, new KVValueAndMetadata(null, maxTimestamp.toString()));
+            if (!rOnStartup) {
                 runContext.logger().info("Initialized Metabase dashboard watermark to {}", maxTimestamp);
                 return Optional.empty();
             }
-
-            java.util.List<Map<String, Object>> dashboardMaps = allDashboards.stream().map(DashboardResponse::toMap).toList();
-            Output output = Output.builder()
-                .dashboards(dashboardMaps)
-                .size(dashboardMaps.size())
-                .build();
-            return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));
+            return Optional.of(generateExecution(conditionContext, context, dashboards));
         }
 
-        // Subsequent poll: filter dashboards newer than lastWatermark
-        java.util.List<DashboardResponse> changedDashboards = new ArrayList<>();
-        String newMaxTimestamp = lastWatermark;
-
-        for (DashboardResponse dashboard : allDashboards) {
-            String ts = getDashboardTimestamp(dashboard);
-            if (ts != null && ts.compareTo(lastWatermark) > 0) {
-                changedDashboards.add(dashboard);
-                if (newMaxTimestamp == null || ts.compareTo(newMaxTimestamp) > 0) {
-                    newMaxTimestamp = ts;
-                }
-            }
-        }
-
-        if (changedDashboards.isEmpty()) {
+        var changed = dashboards.stream()
+            .filter(dashboard ->
+            {
+                var ts = timestamp(dashboard);
+                return ts != null && ts.isAfter(lastWatermark);
+            })
+            .toList();
+        if (changed.isEmpty()) {
             return Optional.empty();
         }
 
-        // Advance watermark in KV Store
-        kvStore.put(watermarkKey, new KVValueAndMetadata(null, newMaxTimestamp));
-        runContext.logger().info("Found {} updated/created dashboards. Advanced watermark to {}", changedDashboards.size(), newMaxTimestamp);
+        kvStore.put(watermarkKey, new KVValueAndMetadata(null, maxTimestamp.toString()));
+        runContext.logger().info("Found {} updated or created dashboards, advanced watermark to {}", changed.size(), maxTimestamp);
 
-        java.util.List<Map<String, Object>> changedDashboardMaps = changedDashboards.stream().map(DashboardResponse::toMap).toList();
-        Output output = Output.builder()
-            .dashboards(changedDashboardMaps)
-            .size(changedDashboardMaps.size())
-            .build();
-
-        return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));
+        return Optional.of(generateExecution(conditionContext, context, changed));
     }
 
-    private String getDashboardTimestamp(DashboardResponse dashboard) {
-        if (dashboard == null) return null;
-        if (dashboard.getUpdatedAt() != null) return dashboard.getUpdatedAt();
-        if (dashboard.getCreatedAt() != null) return dashboard.getCreatedAt();
-        return null;
+    private Execution generateExecution(ConditionContext conditionContext, TriggerContext context, List<DashboardResponse> dashboards) {
+        var maps = dashboards.stream().map(DashboardResponse::toMap).toList();
+        var output = DashboardsOutput.builder().dashboards(maps).size(maps.size()).build();
+        return TriggerService.generateExecution(this, conditionContext, context, output);
     }
 
-    private String findMaxTimestamp(java.util.List<DashboardResponse> dashboards) {
-        String max = null;
-        for (DashboardResponse dashboard : dashboards) {
-            String ts = getDashboardTimestamp(dashboard);
-            if (ts != null && (max == null || ts.compareTo(max) > 0)) {
-                max = ts;
-            }
-        }
-        return max;
+    // Length prefix keeps ("ab", "c") and ("a", "bc") from colliding on the same key.
+    private static String watermarkKey(String flowId, String triggerId) {
+        return "metabase_dashboards_watermark_%d_%s_%s".formatted(flowId.length(), flowId, triggerId);
     }
 
-    @Builder
-    @Getter
-    public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(
-            title = "Dashboards",
-            description = "List of new or updated Metabase dashboards."
-        )
-        private final java.util.List<Map<String, Object>> dashboards;
-
-        @Schema(
-            title = "Dashboards count",
-            description = "Number of new or updated dashboards."
-        )
-        private final Integer size;
+    private static Instant timestamp(DashboardResponse dashboard) {
+        var raw = dashboard.getUpdatedAt() != null ? dashboard.getUpdatedAt() : dashboard.getCreatedAt();
+        return raw != null ? OffsetDateTime.parse(raw).toInstant() : null;
     }
 }

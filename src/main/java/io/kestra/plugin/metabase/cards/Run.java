@@ -1,6 +1,5 @@
 package io.kestra.plugin.metabase.cards;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -8,14 +7,18 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
+import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.QueryOutput;
 import io.kestra.plugin.metabase.QueryOutputHelper;
 import io.kestra.plugin.metabase.models.QueryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import java.util.HashMap;
@@ -29,7 +32,12 @@ import java.util.Map;
 @NoArgsConstructor
 @Schema(
     title = "Run a saved Metabase question",
-    description = "Executes a saved Metabase question (`POST /api/card/{id}/query`) and returns or stores the resulting rows. Note that Metabase applies default query result-size limits for visualization/browser queries (typically up to 2,000 unaggregated rows or up to 10,000 aggregated rows)."
+    description = """
+        Executes a saved Metabase question and returns or stores the resulting rows.
+
+        `FETCH`, `FETCH_ONE` and `NONE` call `POST /api/card/{id}/query`, which Metabase caps at 2,000 rows.
+        `STORE` calls the export endpoint `POST /api/card/{id}/query/json` and streams every row to internal storage.
+        The exported row keys are the ones Metabase writes in its JSON export, which can differ from the column names returned by the other fetch types."""
 )
 @Plugin(
     examples = {
@@ -70,23 +78,27 @@ import java.util.Map;
 public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutput> {
 
     @Schema(
-        title = "Card (Question) ID",
-        description = "The ID of the saved question to run."
+        title = "Card (question) ID",
+        description = """
+            The ID of the saved question to run."""
     )
     @PluginProperty(group = "main")
     @NotNull
     private Property<Integer> cardId;
 
     @Schema(
-        title = "Query Parameters",
-        description = "Optional parameter filter values passed to the question."
+        title = "Query parameters",
+        description = """
+            Optional parameter values passed to the question, in the Metabase `parameters` format."""
     )
     @PluginProperty(group = "main")
     private Property<List<Map<String, Object>>> parameters;
 
     @Schema(
-        title = "Fetch Type",
-        description = "The way results should be handled: `FETCH_ONE` (first row), `FETCH` (all rows inline), `STORE` (stream into internal storage as an Ion file), or `NONE` (no data returned)."
+        title = "Fetch type",
+        description = """
+            How results are handled: `FETCH_ONE` (first row), `FETCH` (all rows inline), `STORE` (stream into internal storage as an Ion file) or `NONE` (only the row count).
+            `FETCH_ONE`, `FETCH` and `NONE` are limited to the 2,000 rows Metabase returns from `/api/card/{id}/query`. Use `STORE` for larger results."""
     )
     @PluginProperty(group = "processing")
     @Builder.Default
@@ -94,30 +106,31 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
 
     @Override
     public QueryOutput run(RunContext runContext) throws Exception {
-        Integer renderedCardId = runContext.render(this.cardId).as(Integer.class).orElseThrow();
-        FetchType renderedFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> renderedParameters = (List<Map<String, Object>>) (List<?>) runContext.render(this.parameters).asList(Map.class);
+        var rCardId = runContext.render(this.cardId).as(Integer.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'cardId' is required, set the id of the saved question."));
+        var rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
+        var rParameters = runContext.render(this.parameters).asList(Map.class);
 
-        runContext.logger().info("Executing saved question ID {} with fetchType {}", renderedCardId, renderedFetchType);
+        runContext.logger().info("Executing saved question ID {} with fetchType {}", rCardId, rFetchType);
 
-        Map<String, Object> requestBody = new HashMap<>();
-        if (renderedParameters != null && !renderedParameters.isEmpty()) {
-            requestBody.put("parameters", renderedParameters);
+        var path = "/api/card/%d/query".formatted(rCardId);
+        try (var client = createClient(runContext)) {
+            if (rFetchType == FetchType.STORE) {
+                var form = new HashMap<String, Object>();
+                form.put("format_rows", false);
+                if (!rParameters.isEmpty()) {
+                    form.put("parameters", JacksonMapper.ofJson().writeValueAsString(rParameters));
+                }
+                return QueryOutputHelper.store(runContext, client, "%s/json".formatted(path), form);
+            }
+
+            var body = new HashMap<String, Object>();
+            if (!rParameters.isEmpty()) {
+                body.put("parameters", rParameters);
+            }
+            var records = QueryOutputHelper.parseRows(client.post(path, body, QueryResponse.class));
+            runContext.logger().debug("Extracted {} rows from saved question ID {}", records.size(), rCardId);
+            return QueryOutputHelper.processOutput(records, rFetchType);
         }
-
-        QueryResponse response;
-        try (MetabaseClient client = createClient(runContext)) {
-            response = client.post(
-                "/api/card/" + renderedCardId + "/query",
-                requestBody,
-                QueryResponse.class
-            );
-        }
-
-        List<Map<String, Object>> records = QueryOutputHelper.parseRows(response);
-        runContext.logger().debug("Extracted {} rows from saved question ID {}", records.size(), renderedCardId);
-
-        return QueryOutputHelper.processOutput(runContext, records, renderedFetchType);
     }
 }

@@ -48,13 +48,27 @@ public class DashboardResponse {
         if (additionalProperties != null) {
             map.putAll(additionalProperties);
         }
-        if (id != null) map.put("id", id);
-        if (name != null) map.put("name", name);
-        if (description != null) map.put("description", description);
-        if (createdAt != null) map.put("created_at", createdAt);
-        if (updatedAt != null) map.put("updated_at", updatedAt);
-        if (dashcards != null) map.put("dashcards", dashcards);
-        if (orderedCards != null) map.put("ordered_cards", orderedCards);
+        if (id != null) {
+            map.put("id", id);
+        }
+        if (name != null) {
+            map.put("name", name);
+        }
+        if (description != null) {
+            map.put("description", description);
+        }
+        if (createdAt != null) {
+            map.put("created_at", createdAt);
+        }
+        if (updatedAt != null) {
+            map.put("updated_at", updatedAt);
+        }
+        if (dashcards != null) {
+            map.put("dashcards", dashcards);
+        }
+        if (orderedCards != null) {
+            map.put("ordered_cards", orderedCards);
+        }
         return map;
     }
 }

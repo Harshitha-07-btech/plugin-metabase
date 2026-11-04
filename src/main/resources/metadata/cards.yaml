@@ -1,5 +1,8 @@
 group: io.kestra.plugin.metabase.cards
 name: "cards"
-title: "Cards"
-description: "Tasks for executing saved questions (cards) in Metabase"
-body: ""
+title: "Metabase Cards"
+description: "Run a saved Metabase question and fetch or store its rows."
+body: "Use `cards.Run` with a `cardId` to run a saved question and return its rows inline or stream them to internal storage with `fetchType: STORE`. Requires the Metabase `url` and one authentication mode (`apiKey`, `sessionToken`, or `username` with `password`)."
+videos: []
+createdBy: "Kestra Core Team"
+managedBy: "Kestra Core Team"

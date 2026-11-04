@@ -1,19 +1,20 @@
 package io.kestra.plugin.metabase.dashboards;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.*;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
-import java.util.Collections;
-import java.util.Map;
+import java.util.Arrays;
+
 
 @SuperBuilder
 @ToString
@@ -22,7 +23,8 @@ import java.util.Map;
 @NoArgsConstructor
 @Schema(
     title = "List Metabase dashboards",
-    description = "Retrieves the list of all accessible dashboards (`GET /api/dashboard`) from Metabase."
+    description = """
+        Retrieves the list of all accessible dashboards (`GET /api/dashboard`) from Metabase."""
 )
 @Plugin(
     examples = {
@@ -42,43 +44,23 @@ import java.util.Map;
         )
     }
 )
-public class List extends AbstractMetabaseTask implements RunnableTask<List.Output> {
+public class List extends AbstractMetabaseTask implements RunnableTask<DashboardsOutput> {
 
     @Override
-    public Output run(RunContext runContext) throws Exception {
+    public DashboardsOutput run(RunContext runContext) throws Exception {
         runContext.logger().info("Fetching list of Metabase dashboards");
 
-        java.util.List<DashboardResponse> dashboardResponses;
-        try (MetabaseClient client = createClient(runContext)) {
-            dashboardResponses = client.get("/api/dashboard", new TypeReference<java.util.List<DashboardResponse>>() {});
+        try (var client = createClient(runContext)) {
+            var dashboards = Arrays.stream(client.get("/api/dashboard", DashboardResponse[].class))
+                .map(DashboardResponse::toMap)
+                .toList();
+
+            runContext.logger().info("Retrieved {} Metabase dashboards", dashboards.size());
+
+            return DashboardsOutput.builder()
+                .dashboards(dashboards)
+                .size(dashboards.size())
+                .build();
         }
-
-        java.util.List<Map<String, Object>> dashboards = dashboardResponses != null
-            ? dashboardResponses.stream().map(DashboardResponse::toMap).toList()
-            : Collections.emptyList();
-
-        int count = dashboards.size();
-        runContext.logger().info("Retrieved {} Metabase dashboards", count);
-
-        return Output.builder()
-            .dashboards(dashboards)
-            .size(count)
-            .build();
-    }
-
-    @Builder
-    @Getter
-    public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(
-            title = "Dashboards",
-            description = "List of Metabase dashboards."
-        )
-        private final java.util.List<Map<String, Object>> dashboards;
-
-        @Schema(
-            title = "Dashboards count",
-            description = "Total number of dashboards returned."
-        )
-        private final Integer size;
     }
 }

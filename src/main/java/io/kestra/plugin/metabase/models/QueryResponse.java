@@ -18,6 +18,7 @@ import java.util.Map;
 public class QueryResponse {
     private QueryData data;
     private String status;
+    private String error;
 
     @JsonProperty("row_count")
     private Long rowCount;

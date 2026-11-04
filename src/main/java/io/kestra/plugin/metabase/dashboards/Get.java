@@ -1,6 +1,5 @@
 package io.kestra.plugin.metabase.dashboards;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -8,14 +7,19 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @SuperBuilder
@@ -25,7 +29,8 @@ import java.util.Map;
 @NoArgsConstructor
 @Schema(
     title = "Get a Metabase dashboard",
-    description = "Retrieves details and cards of a specific dashboard (`GET /api/dashboard/{id}`) from Metabase."
+    description = """
+        Retrieves a dashboard (`GET /api/dashboard/{id}`) from Metabase. The cards are returned in `cards` and left out of `dashboard`."""
 )
 @Plugin(
     examples = {
@@ -50,37 +55,35 @@ public class Get extends AbstractMetabaseTask implements RunnableTask<Get.Output
 
     @Schema(
         title = "Dashboard ID",
-        description = "The ID of the Metabase dashboard to retrieve."
+        description = """
+            The ID of the Metabase dashboard to retrieve."""
     )
     @PluginProperty(group = "main")
     @NotNull
     private Property<Integer> dashboardId;
 
     @Override
-    @SuppressWarnings("unchecked")
     public Output run(RunContext runContext) throws Exception {
-        Integer renderedDashboardId = runContext.render(this.dashboardId).as(Integer.class).orElseThrow();
-        runContext.logger().info("Fetching Metabase dashboard ID {}", renderedDashboardId);
+        var rDashboardId = runContext.render(this.dashboardId).as(Integer.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'dashboardId' is required, set the id of the Metabase dashboard."));
+        runContext.logger().info("Fetching Metabase dashboard ID {}", rDashboardId);
 
-        DashboardResponse dashboardResponse;
-        try (MetabaseClient client = createClient(runContext)) {
-            dashboardResponse = client.get("/api/dashboard/" + renderedDashboardId, DashboardResponse.class);
+        try (var client = createClient(runContext)) {
+            var response = client.get("/api/dashboard/%d".formatted(rDashboardId), DashboardResponse.class);
+
+            var cards = response.getDashcards() != null ? response.getDashcards()
+                : response.getOrderedCards() != null ? response.getOrderedCards()
+                : Collections.<Map<String, Object>>emptyList();
+
+            var dashboard = new LinkedHashMap<>(response.toMap());
+            dashboard.remove("dashcards");
+            dashboard.remove("ordered_cards");
+
+            return Output.builder()
+                .dashboard(dashboard)
+                .cards(cards)
+                .build();
         }
-
-        Map<String, Object> dashboard = dashboardResponse != null ? dashboardResponse.toMap() : Collections.emptyMap();
-        java.util.List<Map<String, Object>> cards = Collections.emptyList();
-        if (dashboardResponse != null) {
-            if (dashboardResponse.getDashcards() != null) {
-                cards = dashboardResponse.getDashcards();
-            } else if (dashboardResponse.getOrderedCards() != null) {
-                cards = dashboardResponse.getOrderedCards();
-            }
-        }
-
-        return Output.builder()
-            .dashboard(dashboard)
-            .cards(cards)
-            .build();
     }
 
     @Builder
@@ -88,14 +91,16 @@ public class Get extends AbstractMetabaseTask implements RunnableTask<Get.Output
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Dashboard details",
-            description = "Complete metadata of the Metabase dashboard."
+            description = """
+                Metadata of the Metabase dashboard, without its cards."""
         )
         private final Map<String, Object> dashboard;
 
         @Schema(
             title = "Dashboard cards",
-            description = "List of cards/dashcards included in the dashboard."
+            description = """
+                The cards (dashcards) placed on the dashboard."""
         )
-        private final java.util.List<Map<String, Object>> cards;
+        private final List<Map<String, Object>> cards;
     }
 }

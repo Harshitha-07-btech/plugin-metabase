@@ -42,9 +42,9 @@ class DatabasesTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         SyncSchema task = SyncSchema.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .databaseId(Property.of(1))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
             .build();
 
         SyncSchema.Output output = task.run(runContext);
@@ -61,9 +61,9 @@ class DatabasesTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         RescanValues task = RescanValues.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .databaseId(Property.of(1))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
             .build();
 
         RescanValues.Output output = task.run(runContext);

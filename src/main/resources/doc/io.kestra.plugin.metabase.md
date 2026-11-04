@@ -1,15 +1,37 @@
-The Metabase plugin allows you to orchestrate and automate [Metabase](https://www.metabase.com/) business intelligence operations within Kestra workflows.
+# How to use the Metabase plugin
 
-## Features
-
-- **Databases**: Synchronize database schemas and rescan field values after ELT or ETL jobs complete (`databases.SyncSchema`, `databases.RescanValues`).
-- **Cards & Questions**: Execute saved cards/questions (`cards.Run`) and capture results into Kestra outputs or store them in Kestra internal storage.
-- **Queries**: Execute native SQL queries (`queries.Run`) against your Metabase data sources directly.
-- **Dashboards**: Fetch dashboard metadata and card configurations (`dashboards.Get`, `dashboards.List`), and trigger executions when dashboards are created or updated (`dashboards.Trigger`).
+Run saved questions and native queries, refresh database metadata, and read or watch dashboards in [Metabase](https://www.metabase.com/) from Kestra flows. The plugin calls the [Metabase REST API](https://www.metabase.com/docs/latest/api-documentation) through Kestra's own HTTP client.
 
 ## Authentication
 
-All tasks in this plugin support:
-- `apiKey`: Metabase API Key passed in the `x-api-key` header (recommended).
-- `sessionToken`: Metabase Session Token passed in the `X-Metabase-Session` header.
-- `username` & `password`: Automatically obtains a session token via `POST /api/session`.
+Every task and trigger needs `url` (required), the base URL of your Metabase instance. Set exactly one authentication mode, otherwise the task fails with an error naming the properties:
+
+- `apiKey` (secret): sent in the `x-api-key` header. Requires Metabase v0.47 or later.
+- `sessionToken` (secret): sent in the `X-Metabase-Session` header.
+- `username` and `password` (secret): both required together. The plugin opens a session with `POST /api/session` and deletes it with `DELETE /api/session` when the task or evaluation ends.
+
+Optional `timeout` (default 60 seconds) sets the HTTP connect and read timeout. Store credentials as [secrets](https://kestra.io/docs/concepts/secret), for example `{{ secret('METABASE_API_KEY') }}`, and use [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults) to avoid repeating the connection on every task.
+
+## Tasks
+
+A failed HTTP call is reported with the status and what to check: 401 and 403 point at the credentials and permissions, 404 at the id you passed.
+
+### Cards and queries
+
+`cards.Run` runs a saved question (`cardId`, required, optional `parameters`). `queries.Run` runs a native SQL query (`databaseId` and `nativeQuery`, required, optional `templateTags`). Both take `fetchType`: `FETCH` (default), `FETCH_ONE`, `STORE` or `NONE`, and output `row`, `rows`, `uri` and `size` depending on it.
+
+- `FETCH`, `FETCH_ONE` and `NONE` use the regular query endpoints, which Metabase caps at 2,000 rows.
+- `STORE` uses the JSON export endpoints and streams every row to an Ion file in internal storage. The row keys are the ones Metabase writes in its JSON export, which can differ from the column names of the other fetch types.
+- Metabase answers a failed SQL query with HTTP 202 and `"status": "failed"`. The task fails with the Metabase error text.
+
+### Databases
+
+`databases.SyncSchema` and `databases.RescanValues` each take a `databaseId` (required) and ask Metabase to start the operation. Metabase runs it asynchronously, the task does not wait for it to finish.
+
+### Dashboards
+
+`dashboards.List` outputs `dashboards` and `size`. `dashboards.Get` takes a `dashboardId` (required) and outputs `dashboard` (metadata) and `cards` (the dashboard's cards, returned only there).
+
+## Triggers
+
+`dashboards.Trigger` polls `GET /api/dashboard` every `interval` (default 5 minutes) and fires when a dashboard's `updated_at` (or `created_at`) is newer than the stored watermark. The watermark is kept in the namespace KV store, keyed by flow and trigger id. By default the first evaluation only records the watermark, set `onStartup: true` to fire for all existing dashboards instead. Output is the same as `dashboards.List`: `{{ trigger.dashboards }}` and `{{ trigger.size }}`.

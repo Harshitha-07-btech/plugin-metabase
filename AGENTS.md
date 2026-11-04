@@ -6,6 +6,7 @@
   - `databases.SyncSchema`, `databases.RescanValues`
   - `cards.Run`, `queries.Run`
   - `dashboards.List`, `dashboards.Get`, `dashboards.Trigger`
+- Shared: `MetabaseConnectionInterface` (connection properties and client factory for tasks and trigger), `MetabaseClient`, `QueryOutputHelper`
 
 ## Why
 

@@ -1,5 +1,8 @@
 group: io.kestra.plugin.metabase.dashboards
 name: "dashboards"
-title: "Dashboards"
-description: "Tasks and triggers for Metabase dashboards"
-body: ""
+title: "Metabase Dashboards"
+description: "List and read Metabase dashboards, and fire a flow when one is created or updated."
+body: "Use `dashboards.List` and `dashboards.Get` to read dashboards and their cards, or `dashboards.Trigger` to fire a flow when a dashboard is created or updated since the last poll. Requires the Metabase `url` and one authentication mode (`apiKey`, `sessionToken`, or `username` with `password`)."
+videos: []
+createdBy: "Kestra Core Team"
+managedBy: "Kestra Core Team"

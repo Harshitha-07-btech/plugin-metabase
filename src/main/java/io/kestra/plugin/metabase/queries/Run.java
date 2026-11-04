@@ -1,6 +1,5 @@
 package io.kestra.plugin.metabase.queries;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -8,18 +7,20 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
+import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.QueryOutput;
 import io.kestra.plugin.metabase.QueryOutputHelper;
 import io.kestra.plugin.metabase.models.QueryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @SuperBuilder
@@ -29,7 +30,12 @@ import java.util.Map;
 @NoArgsConstructor
 @Schema(
     title = "Run a native Metabase query",
-    description = "Executes a native SQL dataset query (`POST /api/dataset`) directly against a connected database in Metabase."
+    description = """
+        Executes a native SQL query against a database connected to Metabase.
+
+        `FETCH`, `FETCH_ONE` and `NONE` call `POST /api/dataset`, which Metabase caps at 2,000 rows.
+        `STORE` calls the export endpoint `POST /api/dataset/json` and streams every row to internal storage.
+        The exported row keys are the ones Metabase writes in its JSON export, which can differ from the column names returned by the other fetch types."""
 )
 @Plugin(
     examples = {
@@ -73,30 +79,35 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
 
     @Schema(
         title = "Database ID",
-        description = "The ID of the Metabase database to execute the query on."
+        description = """
+            The ID of the Metabase database to run the query on."""
     )
     @PluginProperty(group = "main")
     @NotNull
     private Property<Integer> databaseId;
 
     @Schema(
-        title = "Native SQL Query",
-        description = "The native SQL query string to run."
+        title = "Native SQL query",
+        description = """
+            The native SQL query to run."""
     )
     @PluginProperty(group = "main")
     @NotNull
     private Property<String> nativeQuery;
 
     @Schema(
-        title = "Template Tags",
-        description = "Optional Metabase template tags / variable bindings for the native query."
+        title = "Template tags",
+        description = """
+            Optional Metabase template tags (variable bindings) for the native query."""
     )
     @PluginProperty(group = "main")
     private Property<Map<String, Object>> templateTags;
 
     @Schema(
-        title = "Fetch Type",
-        description = "The way results should be handled: `FETCH_ONE` (first row), `FETCH` (all rows inline), `STORE` (stream into internal storage as an Ion file), or `NONE` (no data returned)."
+        title = "Fetch type",
+        description = """
+            How results are handled: `FETCH_ONE` (first row), `FETCH` (all rows inline), `STORE` (stream into internal storage as an Ion file) or `NONE` (only the row count).
+            `FETCH_ONE`, `FETCH` and `NONE` are limited to the 2,000 rows Metabase returns from `/api/dataset`. Use `STORE` for larger results."""
     )
     @PluginProperty(group = "processing")
     @Builder.Default
@@ -104,39 +115,33 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
 
     @Override
     public QueryOutput run(RunContext runContext) throws Exception {
-        Integer renderedDatabaseId = runContext.render(this.databaseId).as(Integer.class).orElseThrow();
-        String renderedQuery = runContext.render(this.nativeQuery).as(String.class).orElseThrow();
-        FetchType renderedFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
-        Map<String, Object> renderedTemplateTags = runContext.render(this.templateTags).asMap(String.class, Object.class);
+        var rDatabaseId = runContext.render(this.databaseId).as(Integer.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'databaseId' is required, set the id of the Metabase database."));
+        var rQuery = runContext.render(this.nativeQuery).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'nativeQuery' is required, set the SQL to run."));
+        var rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
+        var rTemplateTags = runContext.render(this.templateTags).asMap(String.class, Object.class);
 
-        runContext.logger().info("Executing native query on database ID {} with fetchType {}", renderedDatabaseId, renderedFetchType);
+        runContext.logger().info("Executing native query on database ID {} with fetchType {}", rDatabaseId, rFetchType);
 
-        Map<String, Object> nativePayload = new HashMap<>();
-        nativePayload.put("query", renderedQuery);
-        if (renderedTemplateTags != null && !renderedTemplateTags.isEmpty()) {
-            nativePayload.put("template-tags", renderedTemplateTags);
-        } else {
-            nativePayload.put("template-tags", Map.of());
-        }
-
-        Map<String, Object> requestBody = Map.of(
-            "database", renderedDatabaseId,
+        var datasetQuery = Map.of(
+            "database", rDatabaseId,
             "type", "native",
-            "native", nativePayload
+            "native", Map.of("query", rQuery, "template-tags", rTemplateTags)
         );
 
-        QueryResponse response;
-        try (MetabaseClient client = createClient(runContext)) {
-            response = client.post(
-                "/api/dataset",
-                requestBody,
-                QueryResponse.class
-            );
+        try (var client = createClient(runContext)) {
+            if (rFetchType == FetchType.STORE) {
+                var form = Map.<String, Object>of(
+                    "query", JacksonMapper.ofJson().writeValueAsString(datasetQuery),
+                    "format_rows", false
+                );
+                return QueryOutputHelper.store(runContext, client, "/api/dataset/json", form);
+            }
+
+            var records = QueryOutputHelper.parseRows(client.post("/api/dataset", datasetQuery, QueryResponse.class));
+            runContext.logger().debug("Extracted {} rows from dataset query on database ID {}", records.size(), rDatabaseId);
+            return QueryOutputHelper.processOutput(records, rFetchType);
         }
-
-        List<Map<String, Object>> records = QueryOutputHelper.parseRows(response);
-        runContext.logger().debug("Extracted {} rows from dataset query on database ID {}", records.size(), renderedDatabaseId);
-
-        return QueryOutputHelper.processOutput(runContext, records, renderedFetchType);
     }
 }

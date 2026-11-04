@@ -1,5 +1,8 @@
 group: io.kestra.plugin.metabase.databases
 name: "databases"
-title: "Databases"
-description: "Tasks for Metabase database metadata synchronization and value rescanning"
-body: ""
+title: "Metabase Databases"
+description: "Refresh a Metabase database after new data is loaded."
+body: "Use `databases.SyncSchema` to re-read a database schema and `databases.RescanValues` to refresh its field values, typically right after a pipeline loads new tables. Both take a `databaseId`, the Metabase `url`, and one authentication mode (`apiKey`, `sessionToken`, or `username` with `password`)."
+videos: []
+createdBy: "Kestra Core Team"
+managedBy: "Kestra Core Team"

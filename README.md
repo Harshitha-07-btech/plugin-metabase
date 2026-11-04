@@ -54,8 +54,7 @@ Provides tasks and triggers under `io.kestra.plugin.metabase`:
 - `io.kestra.plugin.metabase.queries.Run`: Execute a native SQL/dataset query directly against a Metabase database.
 
 > [!NOTE]
-> **Query Result Size Limits:**
-> When executing saved questions via `POST /api/card/{id}/query`, Metabase returns results formatted for visualization/browser display, which Metabase limits by default (typically up to 2,000 rows for unaggregated queries or up to 10,000 rows for aggregated queries, governed by Metabase's `max-results-bare-rows` setting). For native SQL queries via `io.kestra.plugin.metabase.queries.Run`, query limits can also be controlled directly within the SQL query text. For details on Metabase query execution constraints, refer to the [Metabase API documentation](https://www.metabase.com/docs/latest/api-documentation).
+> **Query result size limits:** `FETCH`, `FETCH_ONE` and `NONE` use `POST /api/card/{id}/query` and `POST /api/dataset`, which Metabase caps at 2,000 rows. `STORE` uses the export endpoints (`/api/card/{id}/query/json`, `/api/dataset/json`) and streams every row to internal storage.
 
 ### Databases
 - `io.kestra.plugin.metabase.databases.SyncSchema`: Trigger an asynchronous schema synchronization (`POST /api/database/{id}/sync_schema`).
@@ -68,10 +67,10 @@ Provides tasks and triggers under `io.kestra.plugin.metabase`:
 
 ## Authentication
 
-All tasks support multiple authentication methods:
+Set exactly one authentication method per task, otherwise it fails:
 - **API Key** (`apiKey`): Metabase API key (recommended). **Requires Metabase v0.47 or later** (see [Metabase API Keys documentation](https://www.metabase.com/docs/latest/people-and-groups/api-keys)).
 - **Session Token** (`sessionToken`): Active session token (`X-Metabase-Session`).
-- **Username & Password** (`username`, `password`): Automatically logs in via `POST /api/session` and authenticates requests.
+- **Username & Password** (`username`, `password`): Logs in via `POST /api/session` and deletes the session with `DELETE /api/session` when the task ends.
 
 ## Example Flow
 

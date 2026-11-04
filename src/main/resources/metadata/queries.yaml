@@ -1,5 +1,8 @@
 group: io.kestra.plugin.metabase.queries
 name: "queries"
-title: "Queries"
-description: "Tasks for executing native SQL or dataset queries in Metabase"
-body: ""
+title: "Metabase Queries"
+description: "Run a native SQL query against a database connected to Metabase."
+body: "Use `queries.Run` with a `databaseId` and a `nativeQuery` to run SQL through Metabase and return the rows inline or stream them to internal storage with `fetchType: STORE`. Requires the Metabase `url` and one authentication mode (`apiKey`, `sessionToken`, or `username` with `password`)."
+videos: []
+createdBy: "Kestra Core Team"
+managedBy: "Kestra Core Team"

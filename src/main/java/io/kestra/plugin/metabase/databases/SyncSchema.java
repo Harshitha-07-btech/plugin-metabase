@@ -7,11 +7,14 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.models.DatabaseActionResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 @SuperBuilder
@@ -21,7 +24,8 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @Schema(
     title = "Trigger Metabase database schema sync",
-    description = "Triggers a schema synchronization (`POST /api/database/{id}/sync_schema`) for a specified database in Metabase."
+    description = """
+            Triggers a schema synchronization (`POST /api/database/{id}/sync_schema`) for a specified database in Metabase."""
 )
 @Plugin(
     examples = {
@@ -46,7 +50,8 @@ public class SyncSchema extends AbstractMetabaseTask implements RunnableTask<Syn
 
     @Schema(
         title = "Database ID",
-        description = "The ID of the Metabase database to sync schema for."
+        description = """
+            The ID of the Metabase database to sync schema for."""
     )
     @PluginProperty(group = "main")
     @NotNull
@@ -54,15 +59,16 @@ public class SyncSchema extends AbstractMetabaseTask implements RunnableTask<Syn
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        Integer renderedDatabaseId = runContext.render(this.databaseId).as(Integer.class).orElseThrow();
-        runContext.logger().info("Triggering schema sync for Metabase database ID {}", renderedDatabaseId);
+        var rDatabaseId = runContext.render(this.databaseId).as(Integer.class)
+            .orElseThrow(() -> new IllegalArgumentException("Property 'databaseId' is required, set the id of the Metabase database."));
+        runContext.logger().info("Triggering schema sync for Metabase database ID {}", rDatabaseId);
 
-        try (MetabaseClient client = createClient(runContext)) {
-            client.post("/api/database/" + renderedDatabaseId + "/sync_schema", null, DatabaseActionResponse.class);
+        try (var client = createClient(runContext)) {
+            client.post("/api/database/%d/sync_schema".formatted(rDatabaseId), null, DatabaseActionResponse.class);
         }
 
         return Output.builder()
-            .databaseId(renderedDatabaseId)
+            .databaseId(rDatabaseId)
             .success(true)
             .build();
     }
@@ -72,13 +78,15 @@ public class SyncSchema extends AbstractMetabaseTask implements RunnableTask<Syn
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             title = "Database ID",
-            description = "The ID of the database that was synced."
+            description = """
+            The ID of the database that was synced."""
         )
         private final Integer databaseId;
 
         @Schema(
             title = "Operation success",
-            description = "Whether the schema sync was successfully triggered."
+            description = """
+            Whether the schema sync was successfully triggered."""
         )
         private final Boolean success;
     }

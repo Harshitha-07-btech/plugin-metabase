@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 class QueriesTest {
@@ -47,11 +48,11 @@ class QueriesTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .databaseId(Property.of(1))
-            .nativeQuery(Property.of("SELECT COUNT(*) AS total FROM users"))
-            .fetchType(Property.of(FetchType.FETCH))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
+            .nativeQuery(Property.ofValue("SELECT COUNT(*) AS total FROM users"))
+            .fetchType(Property.ofValue(FetchType.FETCH))
             .build();
 
         QueryOutput output = task.run(runContext);
@@ -66,11 +67,11 @@ class QueriesTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .databaseId(Property.of(1))
-            .nativeQuery(Property.of("SELECT COUNT(*) AS total FROM users"))
-            .fetchType(Property.of(FetchType.FETCH_ONE))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
+            .nativeQuery(Property.ofValue("SELECT COUNT(*) AS total FROM users"))
+            .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 
         QueryOutput output = task.run(runContext);
@@ -85,16 +86,16 @@ class QueriesTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Run task = Run.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .databaseId(Property.of(1))
-            .nativeQuery(Property.of("SELECT COUNT(*) AS total FROM users"))
-            .fetchType(Property.of(FetchType.STORE))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
+            .nativeQuery(Property.ofValue("SELECT COUNT(*) AS total FROM users"))
+            .fetchType(Property.ofValue(FetchType.STORE))
             .build();
 
         QueryOutput output = task.run(runContext);
 
-        assertThat(output.getSize(), is(1L));
+        assertThat(output.getSize(), is(2L));
         assertThat(output.getUri(), notNullValue());
 
         List<Object> deserializedRows = new ArrayList<>();
@@ -102,9 +103,40 @@ class QueriesTest {
             FileSerde.read(is, deserializedRows::add);
         }
 
-        assertThat(deserializedRows, hasSize(1));
+        assertThat(deserializedRows, hasSize(2));
         @SuppressWarnings("unchecked")
         Map<String, Object> first = (Map<String, Object>) deserializedRows.get(0);
         assertThat(first.get("total"), is(42));
+    }
+
+    @Test
+    void testQueryRunFailedQueryThrowsMetabaseError() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
+            .nativeQuery(Property.ofValue("SELECT * FROM FAIL_ME"))
+            .build();
+
+        var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(e.getMessage(), containsString("missing_table"));
+    }
+
+    @Test
+    void testQueryRunStoreUsesExportEndpointWithQueryForm() throws Exception {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .databaseId(Property.ofValue(1))
+            .nativeQuery(Property.ofValue("SELECT 1"))
+            .fetchType(Property.ofValue(FetchType.STORE))
+            .build();
+
+        task.run(runContextFactory.of(Map.of()));
+
+        var request = server.getRecordedRequests().getFirst();
+        assertThat(request.path(), is("/api/dataset/json"));
+        assertThat(request.headers().get("Content-Type").getFirst(), startsWith("application/x-www-form-urlencoded"));
+        assertThat(request.body(), containsString("query="));
     }
 }

@@ -11,6 +11,7 @@ import io.kestra.core.repositories.FlowRepositoryInterface;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
+import io.kestra.plugin.metabase.dashboards.DashboardsOutput;
 import io.kestra.plugin.metabase.dashboards.Get;
 import io.kestra.plugin.metabase.dashboards.List;
 import io.kestra.plugin.metabase.dashboards.Trigger;
@@ -55,11 +56,11 @@ class DashboardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         List task = List.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
             .build();
 
-        List.Output output = task.run(runContext);
+        DashboardsOutput output = task.run(runContext);
 
         assertThat(output.getSize(), is(2));
         assertThat(output.getDashboards(), hasSize(2));
@@ -72,9 +73,9 @@ class DashboardsTest {
         RunContext runContext = runContextFactory.of(Map.of());
 
         Get task = Get.builder()
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .dashboardId(Property.of(1))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .dashboardId(Property.ofValue(1))
             .build();
 
         Get.Output output = task.run(runContext);
@@ -82,6 +83,7 @@ class DashboardsTest {
         assertThat(output.getDashboard(), notNullValue());
         assertThat(output.getDashboard().get("id"), is(1));
         assertThat(output.getDashboard().get("name"), is("Executive Overview"));
+        assertThat(output.getDashboard().containsKey("dashcards"), is(false));
         assertThat(output.getCards(), hasSize(2));
         assertThat(output.getCards().get(0).get("id"), is(11));
     }
@@ -105,9 +107,9 @@ class DashboardsTest {
         Trigger trigger = Trigger.builder()
             .id(triggerId)
             .type(Trigger.class.getName())
-            .url(Property.of(server.getUrl()))
-            .apiKey(Property.of("test-api-key"))
-            .onStartup(Property.of(false))
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .onStartup(Property.ofValue(false))
             .build();
 
         TriggerContext triggerContext = TriggerContext.builder()
@@ -117,13 +119,7 @@ class DashboardsTest {
             .flowId(flowId)
             .build();
 
-        RunContext runContext = runContextFactory.of(flow, trigger);
-        runContext = runContextFactory.initializer().forScheduler((io.kestra.core.runners.DefaultRunContext) runContext, triggerContext, trigger);
-
-        ConditionContext conditionContext = ConditionContext.builder()
-            .runContext(runContext)
-            .flow(flow)
-            .build();
+        var conditionContext = conditionContext(flow, trigger, triggerContext);
 
         // 1. First evaluation: watermark is empty, onStartup=false -> initializes watermark to max (2026-10-20), returns empty
         Optional<Execution> eval1 = trigger.evaluate(conditionContext, triggerContext);
@@ -144,5 +140,35 @@ class DashboardsTest {
         // 4. Third evaluation: no newer dashboard, returns empty
         Optional<Execution> eval3 = trigger.evaluate(conditionContext, triggerContext);
         assertThat(eval3.isEmpty(), is(true));
+    }
+
+    @Test
+    void testTriggerWatermarkIsScopedPerFlow() throws Exception {
+        var tenantId = IdUtils.create();
+        var namespace = "io.kestra." + IdUtils.create();
+        var triggerId = "trigger-" + IdUtils.create();
+
+        var firstFlow = Flow.builder().tenantId(tenantId).id("flow-a").namespace(namespace).revision(1).tasks(Collections.emptyList()).build();
+        var secondFlow = Flow.builder().tenantId(tenantId).id("flow-b").namespace(namespace).revision(1).tasks(Collections.emptyList()).build();
+
+        var firstTrigger = Trigger.builder().id(triggerId).type(Trigger.class.getName())
+            .url(Property.ofValue(server.getUrl())).apiKey(Property.ofValue("test-api-key")).build();
+        var secondTrigger = Trigger.builder().id(triggerId).type(Trigger.class.getName())
+            .url(Property.ofValue(server.getUrl())).apiKey(Property.ofValue("test-api-key")).onStartup(Property.ofValue(true)).build();
+
+        var firstContext = TriggerContext.builder().tenantId(tenantId).triggerId(triggerId).namespace(namespace).flowId("flow-a").build();
+        var secondContext = TriggerContext.builder().tenantId(tenantId).triggerId(triggerId).namespace(namespace).flowId("flow-b").build();
+
+        firstTrigger.evaluate(conditionContext(firstFlow, firstTrigger, firstContext), firstContext);
+
+        // flow-b has its own watermark, so onStartup still fires for it even though flow-a already stored one
+        var eval = secondTrigger.evaluate(conditionContext(secondFlow, secondTrigger, secondContext), secondContext);
+        assertThat(eval.isPresent(), is(true));
+    }
+
+    private ConditionContext conditionContext(Flow flow, Trigger trigger, TriggerContext triggerContext) throws Exception {
+        var runContext = runContextFactory.of(flow, trigger);
+        runContext = runContextFactory.initializer().forScheduler((io.kestra.core.runners.DefaultRunContext) runContext, triggerContext, trigger);
+        return ConditionContext.builder().runContext(runContext).flow(flow).build();
     }
 }
