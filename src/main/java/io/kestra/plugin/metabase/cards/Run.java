@@ -128,7 +128,7 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
             if (!rParameters.isEmpty()) {
                 body.put("parameters", rParameters);
             }
-            var records = QueryOutputHelper.parseRows(client.post(path, body, QueryResponse.class));
+            var records = QueryOutputHelper.parseRows(client.post(path, body, QueryResponse.class), rFetchType);
             runContext.logger().debug("Extracted {} rows from saved question ID {}", records.size(), rCardId);
             return QueryOutputHelper.processOutput(records, rFetchType);
         }

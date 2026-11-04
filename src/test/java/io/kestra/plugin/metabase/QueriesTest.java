@@ -47,7 +47,7 @@ class QueriesTest {
     void testQueryRunFetch() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .databaseId(Property.ofValue(1))
@@ -59,14 +59,14 @@ class QueriesTest {
 
         assertThat(output.getSize(), is(1L));
         assertThat(output.getRows(), hasSize(1));
-        assertThat(output.getRows().get(0).get("total"), is(42));
+        assertThat(output.getRows().getFirst().get("total"), is(42));
     }
 
     @Test
     void testQueryRunFetchOne() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .databaseId(Property.ofValue(1))
@@ -85,7 +85,7 @@ class QueriesTest {
     void testQueryRunStore() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .databaseId(Property.ofValue(1))
@@ -98,14 +98,14 @@ class QueriesTest {
         assertThat(output.getSize(), is(2L));
         assertThat(output.getUri(), notNullValue());
 
-        List<Object> deserializedRows = new ArrayList<>();
+        var deserializedRows = new ArrayList<Object>();
         try (InputStream is = new BufferedInputStream(runContext.storage().getFile(output.getUri()), FileSerde.BUFFER_SIZE)) {
             FileSerde.read(is, deserializedRows::add);
         }
 
         assertThat(deserializedRows, hasSize(2));
         @SuppressWarnings("unchecked")
-        Map<String, Object> first = (Map<String, Object>) deserializedRows.get(0);
+        var first = (Map<String, Object>) deserializedRows.getFirst();
         assertThat(first.get("total"), is(42));
     }
 

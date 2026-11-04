@@ -169,6 +169,10 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             .max(Instant::compareTo)
             .orElse(null);
         if (maxTimestamp == null) {
+            // Without any dashboard yet, start from the epoch so the first one created later fires.
+            if (lastWatermark == null) {
+                kvStore.put(watermarkKey, new KVValueAndMetadata(null, Instant.EPOCH.toString()));
+            }
             return Optional.empty();
         }
 

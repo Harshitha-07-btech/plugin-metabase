@@ -34,14 +34,14 @@ public class MetabaseMockServer implements AutoCloseable {
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 
         // Seed initial dashboards
-        Map<String, Object> d1 = new LinkedHashMap<>();
+        var d1 = new LinkedHashMap<String, Object>();
         d1.put("id", 1);
         d1.put("name", "Executive Overview");
         d1.put("description", "Weekly KPI dashboard");
         d1.put("created_at", "2026-10-01T10:00:00Z");
         d1.put("updated_at", "2026-10-15T12:00:00Z");
 
-        Map<String, Object> d2 = new LinkedHashMap<>();
+        var d2 = new LinkedHashMap<String, Object>();
         d2.put("id", 2);
         d2.put("name", "Operations");
         d2.put("description", "Daily ops metrics");
@@ -57,15 +57,19 @@ public class MetabaseMockServer implements AutoCloseable {
     }
 
     public String getUrl() {
-        return "http://127.0.0.1:" + server.getAddress().getPort();
+        return "http://127.0.0.1:%d".formatted(server.getAddress().getPort());
     }
 
     public List<RecordedRequest> getRecordedRequests() {
         return recordedRequests;
     }
 
+    public void clearDashboards() {
+        dashboards.clear();
+    }
+
     public void addDashboard(int id, String name, String updatedAt) {
-        Map<String, Object> d = new LinkedHashMap<>();
+        var d = new LinkedHashMap<String, Object>();
         d.put("id", id);
         d.put("name", name);
         d.put("description", "New dashboard");
@@ -79,7 +83,7 @@ public class MetabaseMockServer implements AutoCloseable {
         public void handle(HttpExchange exchange) throws IOException {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
-            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
             recordedRequests.add(new RecordedRequest(method, path, exchange.getRequestHeaders(), body));
 
@@ -139,7 +143,7 @@ public class MetabaseMockServer implements AutoCloseable {
             }
 
             if ("POST".equalsIgnoreCase(method) && "/api/card/10/query".equals(path)) {
-                Map<String, Object> result = Map.of(
+                var result = Map.of(
                     "data", Map.of(
                         "cols", List.of(
                             Map.of("name", "id", "display_name", "ID", "base_type", "type/Integer"),
@@ -158,7 +162,7 @@ public class MetabaseMockServer implements AutoCloseable {
             }
 
             if ("POST".equalsIgnoreCase(method) && "/api/dataset".equals(path)) {
-                Map<String, Object> result = Map.of(
+                var result = Map.of(
                     "data", Map.of(
                         "cols", List.of(
                             Map.of("name", "total", "display_name", "Total Count", "base_type", "type/Integer")
@@ -180,7 +184,7 @@ public class MetabaseMockServer implements AutoCloseable {
             }
 
             if ("GET".equalsIgnoreCase(method) && "/api/dashboard/1".equals(path)) {
-                Map<String, Object> dashboardWithCards = new LinkedHashMap<>();
+                var dashboardWithCards = new LinkedHashMap<String, Object>();
                 dashboardWithCards.put("id", 1);
                 dashboardWithCards.put("name", "Executive Overview");
                 dashboardWithCards.put("description", "Weekly KPI dashboard");
@@ -192,7 +196,7 @@ public class MetabaseMockServer implements AutoCloseable {
                 return;
             }
 
-            sendJson(exchange, 404, Map.of("error", "Not Found: " + path));
+            sendJson(exchange, 404, Map.of("error", "Not Found: %s".formatted(path)));
         }
 
         private void sendJson(HttpExchange exchange, int statusCode, Object data) throws IOException {

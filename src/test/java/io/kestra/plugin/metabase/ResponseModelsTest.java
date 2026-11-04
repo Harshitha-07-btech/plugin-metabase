@@ -1,6 +1,7 @@
 package io.kestra.plugin.metabase;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.kestra.plugin.metabase.models.DatabaseActionResponse;
@@ -20,7 +21,7 @@ class ResponseModelsTest {
 
     @Test
     void testSessionResponseWithUnknownFields() throws Exception {
-        String json = """
+        var json = """
             {
                 "id": "session-xyz-123",
                 "user_id": 42,
@@ -34,7 +35,7 @@ class ResponseModelsTest {
 
     @Test
     void testDatabaseActionResponseWithUnknownFields() throws Exception {
-        String json = """
+        var json = """
             {
                 "success": true,
                 "status": "ok",
@@ -50,7 +51,7 @@ class ResponseModelsTest {
 
     @Test
     void testDashboardResponseWithUnknownFields() throws Exception {
-        String json = """
+        var json = """
             {
                 "id": 1,
                 "name": "Executive Dashboard",
@@ -82,7 +83,7 @@ class ResponseModelsTest {
 
     @Test
     void testQueryResponseWithDynamicColumnsAndRows() throws Exception {
-        String json = """
+        var json = """
             {
                 "status": "completed",
                 "row_count": 2,
@@ -106,21 +107,21 @@ class ResponseModelsTest {
         assertThat(response.getRowCount(), is(2L));
         assertThat(response.getData(), notNullValue());
 
-        List<Map<String, Object>> parsed = QueryOutputHelper.parseRows(response);
+        var parsed = QueryOutputHelper.parseRows(response, FetchType.FETCH);
         assertThat(parsed, hasSize(2));
-        assertThat(parsed.get(0).get("id"), is(101));
-        assertThat(parsed.get(0).get("category"), is("Doohickey"));
+        assertThat(parsed.getFirst().get("id"), is(101));
+        assertThat(parsed.getFirst().get("category"), is("Doohickey"));
         assertThat(parsed.get(1).get("id"), is(102));
         assertThat(parsed.get(1).get("category"), is("Widget"));
     }
 
     @Test
     void testQueryResponseWithNullData() {
-        List<Map<String, Object>> nullResponse = QueryOutputHelper.parseRows((QueryResponse) null);
+        var nullResponse = QueryOutputHelper.parseRows(null, FetchType.FETCH);
         assertThat(nullResponse, empty());
 
-        QueryResponse emptyData = QueryResponse.builder().status("completed").build();
-        List<Map<String, Object>> emptyDataResponse = QueryOutputHelper.parseRows(emptyData);
+        var emptyData = QueryResponse.builder().status("completed").build();
+        var emptyDataResponse = QueryOutputHelper.parseRows(emptyData, FetchType.FETCH);
         assertThat(emptyDataResponse, empty());
     }
 
@@ -130,7 +131,18 @@ class ResponseModelsTest {
             { "status": "failed", "error": "ERROR: syntax error at position 7", "row_count": 0 }
             """, QueryResponse.class);
 
-        var e = assertThrows(IllegalStateException.class, () -> QueryOutputHelper.parseRows(response));
+        var e = assertThrows(IllegalStateException.class, () -> QueryOutputHelper.parseRows(response, FetchType.FETCH));
         assertThat(e.getMessage(), containsString("ERROR: syntax error at position 7"));
+    }
+
+    @Test
+    void truncatedResultFailsOnlyForFetch() throws Exception {
+        var response = MAPPER.readValue("""
+            { "status": "completed", "row_count": 2000, "data": { "cols": [ { "name": "id" } ], "rows": [ [ 1 ] ], "rows_truncated": 2000 } }
+            """, QueryResponse.class);
+
+        var e = assertThrows(IllegalStateException.class, () -> QueryOutputHelper.parseRows(response, FetchType.FETCH));
+        assertThat(e.getMessage(), containsString("fetchType: STORE"));
+        assertThat(QueryOutputHelper.parseRows(response, FetchType.FETCH_ONE), hasSize(1));
     }
 }

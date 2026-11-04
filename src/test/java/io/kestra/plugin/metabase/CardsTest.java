@@ -47,7 +47,7 @@ class CardsTest {
     void testCardRunFetch() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .cardId(Property.ofValue(10))
@@ -58,8 +58,8 @@ class CardsTest {
 
         assertThat(output.getSize(), is(2L));
         assertThat(output.getRows(), hasSize(2));
-        assertThat(output.getRows().get(0).get("id"), is(101));
-        assertThat(output.getRows().get(0).get("title"), is("First Item"));
+        assertThat(output.getRows().getFirst().get("id"), is(101));
+        assertThat(output.getRows().getFirst().get("title"), is("First Item"));
         assertThat(output.getRows().get(1).get("id"), is(102));
         assertThat(output.getRows().get(1).get("title"), is("Second Item"));
         assertThat(output.getRow(), nullValue());
@@ -70,7 +70,7 @@ class CardsTest {
     void testCardRunFetchOne() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .cardId(Property.ofValue(10))
@@ -91,7 +91,7 @@ class CardsTest {
     void testCardRunStore() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .cardId(Property.ofValue(10))
@@ -106,14 +106,14 @@ class CardsTest {
         assertThat(output.getRow(), nullValue());
 
         // Verify storage file contents with FileSerde
-        List<Object> deserializedRows = new ArrayList<>();
+        var deserializedRows = new ArrayList<Object>();
         try (InputStream is = new BufferedInputStream(runContext.storage().getFile(output.getUri()), FileSerde.BUFFER_SIZE)) {
             FileSerde.read(is, deserializedRows::add);
         }
 
         assertThat(deserializedRows, hasSize(3));
         @SuppressWarnings("unchecked")
-        Map<String, Object> first = (Map<String, Object>) deserializedRows.get(0);
+        var first = (Map<String, Object>) deserializedRows.getFirst();
         assertThat(first.get("id"), is(101));
         assertThat(first.get("title"), is("First Item"));
     }
@@ -122,7 +122,7 @@ class CardsTest {
     void testCardRunNone() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Run task = Run.builder()
+        var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .cardId(Property.ofValue(10))

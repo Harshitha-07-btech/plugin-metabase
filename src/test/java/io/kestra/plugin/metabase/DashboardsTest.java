@@ -55,7 +55,7 @@ class DashboardsTest {
     void testDashboardList() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        List task = List.builder()
+        var task = List.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .build();
@@ -64,7 +64,7 @@ class DashboardsTest {
 
         assertThat(output.getSize(), is(2));
         assertThat(output.getDashboards(), hasSize(2));
-        assertThat(output.getDashboards().get(0).get("name"), is("Executive Overview"));
+        assertThat(output.getDashboards().getFirst().get("name"), is("Executive Overview"));
         assertThat(output.getDashboards().get(1).get("name"), is("Operations"));
     }
 
@@ -72,7 +72,7 @@ class DashboardsTest {
     void testDashboardGet() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        Get task = Get.builder()
+        var task = Get.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .dashboardId(Property.ofValue(1))
@@ -85,17 +85,17 @@ class DashboardsTest {
         assertThat(output.getDashboard().get("name"), is("Executive Overview"));
         assertThat(output.getDashboard().containsKey("dashcards"), is(false));
         assertThat(output.getCards(), hasSize(2));
-        assertThat(output.getCards().get(0).get("id"), is(11));
+        assertThat(output.getCards().getFirst().get("id"), is(11));
     }
 
     @Test
     void testDashboardTriggerWatermarkFlow() throws Exception {
-        String tenantId = IdUtils.create();
-        String namespace = "io.kestra." + IdUtils.create();
-        String flowId = "flow-" + IdUtils.create();
-        String triggerId = "trigger-" + IdUtils.create();
+        var tenantId = IdUtils.create();
+        var namespace = "io.kestra.%s".formatted(IdUtils.create());
+        var flowId = "flow-%s".formatted(IdUtils.create());
+        var triggerId = "trigger-%s".formatted(IdUtils.create());
 
-        Flow flow = Flow.builder()
+        var flow = Flow.builder()
             .tenantId(tenantId)
             .id(flowId)
             .namespace(namespace)
@@ -104,7 +104,7 @@ class DashboardsTest {
             .build();
         flowRepository.create(GenericFlow.of(flow));
 
-        Trigger trigger = Trigger.builder()
+        var trigger = Trigger.builder()
             .id(triggerId)
             .type(Trigger.class.getName())
             .url(Property.ofValue(server.getUrl()))
@@ -112,7 +112,7 @@ class DashboardsTest {
             .onStartup(Property.ofValue(false))
             .build();
 
-        TriggerContext triggerContext = TriggerContext.builder()
+        var triggerContext = TriggerContext.builder()
             .tenantId(tenantId)
             .triggerId(triggerId)
             .namespace(namespace)
@@ -134,7 +134,7 @@ class DashboardsTest {
         Execution execution = eval2.get();
         assertThat(execution.getTrigger(), notNullValue());
         @SuppressWarnings("unchecked")
-        Map<String, Object> triggerVariables = (Map<String, Object>) execution.getTrigger().getVariables();
+        var triggerVariables = (Map<String, Object>) execution.getTrigger().getVariables();
         assertThat(triggerVariables.get("size"), is(1));
 
         // 4. Third evaluation: no newer dashboard, returns empty
@@ -145,8 +145,8 @@ class DashboardsTest {
     @Test
     void testTriggerWatermarkIsScopedPerFlow() throws Exception {
         var tenantId = IdUtils.create();
-        var namespace = "io.kestra." + IdUtils.create();
-        var triggerId = "trigger-" + IdUtils.create();
+        var namespace = "io.kestra.%s".formatted(IdUtils.create());
+        var triggerId = "trigger-%s".formatted(IdUtils.create());
 
         var firstFlow = Flow.builder().tenantId(tenantId).id("flow-a").namespace(namespace).revision(1).tasks(Collections.emptyList()).build();
         var secondFlow = Flow.builder().tenantId(tenantId).id("flow-b").namespace(namespace).revision(1).tasks(Collections.emptyList()).build();
@@ -164,6 +164,23 @@ class DashboardsTest {
         // flow-b has its own watermark, so onStartup still fires for it even though flow-a already stored one
         var eval = secondTrigger.evaluate(conditionContext(secondFlow, secondTrigger, secondContext), secondContext);
         assertThat(eval.isPresent(), is(true));
+    }
+
+    @Test
+    void firstDashboardFiresWhenTriggerStartedWithNone() throws Exception {
+        server.clearDashboards();
+        var tenantId = IdUtils.create();
+        var namespace = "io.kestra.%s".formatted(IdUtils.create());
+        var triggerId = "trigger-%s".formatted(IdUtils.create());
+        var flow = Flow.builder().tenantId(tenantId).id("flow-empty").namespace(namespace).revision(1).tasks(Collections.emptyList()).build();
+        var trigger = Trigger.builder().id(triggerId).type(Trigger.class.getName())
+            .url(Property.ofValue(server.getUrl())).apiKey(Property.ofValue("test-api-key")).build();
+        var triggerContext = TriggerContext.builder().tenantId(tenantId).triggerId(triggerId).namespace(namespace).flowId("flow-empty").build();
+
+        assertThat(trigger.evaluate(conditionContext(flow, trigger, triggerContext), triggerContext).isEmpty(), is(true));
+
+        server.addDashboard(9, "First dashboard", "2026-11-04T08:00:00Z");
+        assertThat(trigger.evaluate(conditionContext(flow, trigger, triggerContext), triggerContext).isPresent(), is(true));
     }
 
     private ConditionContext conditionContext(Flow flow, Trigger trigger, TriggerContext triggerContext) throws Exception {

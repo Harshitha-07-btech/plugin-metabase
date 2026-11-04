@@ -139,7 +139,7 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
                 return QueryOutputHelper.store(runContext, client, "/api/dataset/json", form);
             }
 
-            var records = QueryOutputHelper.parseRows(client.post("/api/dataset", datasetQuery, QueryResponse.class));
+            var records = QueryOutputHelper.parseRows(client.post("/api/dataset", datasetQuery, QueryResponse.class), rFetchType);
             runContext.logger().debug("Extracted {} rows from dataset query on database ID {}", records.size(), rDatabaseId);
             return QueryOutputHelper.processOutput(records, rFetchType);
         }

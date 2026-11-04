@@ -41,7 +41,7 @@ class DatabasesTest {
     void testSyncSchema() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        SyncSchema task = SyncSchema.builder()
+        var task = SyncSchema.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .databaseId(Property.ofValue(1))
@@ -53,14 +53,14 @@ class DatabasesTest {
         assertThat(output.getDatabaseId(), is(1));
 
         assertThat(server.getRecordedRequests(), hasSize(1));
-        assertThat(server.getRecordedRequests().get(0).path(), is("/api/database/1/sync_schema"));
+        assertThat(server.getRecordedRequests().getFirst().path(), is("/api/database/1/sync_schema"));
     }
 
     @Test
     void testRescanValues() throws Exception {
         RunContext runContext = runContextFactory.of(Map.of());
 
-        RescanValues task = RescanValues.builder()
+        var task = RescanValues.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .databaseId(Property.ofValue(1))
@@ -72,6 +72,6 @@ class DatabasesTest {
         assertThat(output.getDatabaseId(), is(1));
 
         assertThat(server.getRecordedRequests(), hasSize(1));
-        assertThat(server.getRecordedRequests().get(0).path(), is("/api/database/1/rescan_values"));
+        assertThat(server.getRecordedRequests().getFirst().path(), is("/api/database/1/rescan_values"));
     }
 }

@@ -31,5 +31,8 @@ public class QueryResponse {
     public static class QueryData {
         private List<Map<String, Object>> cols;
         private List<List<Object>> rows;
+
+        @JsonProperty("rows_truncated")
+        private Long rowsTruncated;
     }
 }

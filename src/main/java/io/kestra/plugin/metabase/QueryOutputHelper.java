@@ -24,7 +24,7 @@ public class QueryOutputHelper {
     private static final String COMPLETED_STATUS = "completed";
     private static final TypeReference<LinkedHashMap<String, Object>> ROW_TYPE = new TypeReference<>() {};
 
-    public static List<Map<String, Object>> parseRows(QueryResponse queryResult) {
+    public static List<Map<String, Object>> parseRows(QueryResponse queryResult, FetchType fetchType) {
         if (queryResult == null) {
             return Collections.emptyList();
         }
@@ -39,6 +39,12 @@ public class QueryOutputHelper {
 
         if (queryResult.getData() == null) {
             return Collections.emptyList();
+        }
+        // Metabase caps inline results and only flags it, so FETCH would silently return a partial result.
+        if (fetchType == FetchType.FETCH && queryResult.getData().getRowsTruncated() != null) {
+            throw new IllegalStateException(
+                "Metabase truncated the result to %d rows. Use `fetchType: STORE` to get every row.".formatted(queryResult.getData().getRowsTruncated())
+            );
         }
         return parseData(queryResult.getData().getCols(), queryResult.getData().getRows());
     }

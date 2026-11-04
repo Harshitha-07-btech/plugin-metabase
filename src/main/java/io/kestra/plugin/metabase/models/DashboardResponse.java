@@ -44,7 +44,7 @@ public class DashboardResponse {
     }
 
     public Map<String, Object> toMap() {
-        Map<String, Object> map = new LinkedHashMap<>();
+        var map = new LinkedHashMap<String, Object>();
         if (additionalProperties != null) {
             map.putAll(additionalProperties);
         }

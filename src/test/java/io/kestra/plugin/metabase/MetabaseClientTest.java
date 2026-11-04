@@ -55,7 +55,7 @@ class MetabaseClientTest {
 
             List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
             assertThat(requests, hasSize(1));
-            assertThat(requests.get(0).headers().get("x-api-key"), contains("secret-api-key-123"));
+            assertThat(requests.getFirst().headers().get("x-api-key"), contains("secret-api-key-123"));
         }
     }
 
@@ -77,7 +77,7 @@ class MetabaseClientTest {
 
             List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
             assertThat(requests, hasSize(1));
-            assertThat(requests.get(0).headers().get("X-Metabase-Session"), contains("session-token-abc"));
+            assertThat(requests.getFirst().headers().get("X-Metabase-Session"), contains("session-token-abc"));
         }
     }
 
@@ -100,7 +100,7 @@ class MetabaseClientTest {
             List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
             // First call was POST /api/session, second call was GET /api/dashboard
             assertThat(requests, hasSize(2));
-            assertThat(requests.get(0).path(), is("/api/session"));
+            assertThat(requests.getFirst().path(), is("/api/session"));
             assertThat(requests.get(1).path(), is("/api/dashboard"));
             assertThat(requests.get(1).headers().get("X-Metabase-Session"), contains("test-session-token-xyz"));
         }
