@@ -7,7 +7,6 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -17,7 +16,6 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,21 +67,23 @@ public class Get extends AbstractMetabaseTask implements RunnableTask<Get.Output
         runContext.logger().info("Fetching Metabase dashboard ID {}", rDashboardId);
 
         try (var client = createClient(runContext)) {
-            var response = client.get("/api/dashboard/%d".formatted(rDashboardId), DashboardResponse.class);
+            var response = client.getMap("/api/dashboard/%d".formatted(rDashboardId));
 
-            var cards = response.getDashcards() != null ? response.getDashcards()
-                : response.getOrderedCards() != null ? response.getOrderedCards()
-                : Collections.<Map<String, Object>>emptyList();
-
-            var dashboard = new LinkedHashMap<>(response.toMap());
-            dashboard.remove("dashcards");
-            dashboard.remove("ordered_cards");
+            var dashboard = new LinkedHashMap<>(response);
+            var dashcards = dashboard.remove("dashcards");
+            var orderedCards = dashboard.remove("ordered_cards");
+            var cards = dashcards != null ? dashcards : orderedCards;
 
             return Output.builder()
                 .dashboard(dashboard)
-                .cards(cards)
+                .cards(toCards(cards))
                 .build();
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> toCards(Object cards) {
+        return cards instanceof List<?> list ? (List<Map<String, Object>>) list : List.of();
     }
 
     @Builder

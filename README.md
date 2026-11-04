@@ -41,9 +41,7 @@ This plugin integrates [Metabase](https://www.metabase.com/) business intelligen
 
 ## Why
 
-- **Automated BI Orchestration**: Trigger database schema syncs and field rescans right after your data pipelines (ELT/dbt) finish loading data.
-- **Data-Driven Automation**: Execute saved questions or native queries and pass results to downstream tasks or store them in Kestra internal storage.
-- **Event-Driven Dashboard Triggers**: Trigger workflows automatically when new dashboards are created or existing dashboards are modified in Metabase using watermarked polling.
+Refresh Metabase after a pipeline loads new tables, pull the rows of a saved question or a native query into a flow, and start a flow when a dashboard changes.
 
 ## What
 

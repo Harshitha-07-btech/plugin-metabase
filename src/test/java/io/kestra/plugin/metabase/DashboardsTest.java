@@ -2,13 +2,12 @@ package io.kestra.plugin.metabase;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.conditions.ConditionContext;
-import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.flows.GenericFlow;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.triggers.TriggerContext;
 import io.kestra.core.repositories.FlowRepositoryInterface;
-import io.kestra.core.runners.RunContext;
+import io.kestra.core.runners.DefaultRunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
 import io.kestra.plugin.metabase.dashboards.DashboardsOutput;
@@ -20,10 +19,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -40,7 +37,7 @@ class DashboardsTest {
     private MetabaseMockServer server;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() {
         server = new MetabaseMockServer();
     }
 
@@ -53,14 +50,14 @@ class DashboardsTest {
 
     @Test
     void testDashboardList() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = List.builder()
             .url(Property.ofValue(server.getUrl()))
             .apiKey(Property.ofValue("test-api-key"))
             .build();
 
-        DashboardsOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(2));
         assertThat(output.getDashboards(), hasSize(2));
@@ -70,7 +67,7 @@ class DashboardsTest {
 
     @Test
     void testDashboardGet() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Get.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -78,7 +75,7 @@ class DashboardsTest {
             .dashboardId(Property.ofValue(1))
             .build();
 
-        Get.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getDashboard(), notNullValue());
         assertThat(output.getDashboard().get("id"), is(1));
@@ -121,24 +118,20 @@ class DashboardsTest {
 
         var conditionContext = conditionContext(flow, trigger, triggerContext);
 
-        // 1. First evaluation: watermark is empty, onStartup=false -> initializes watermark to max (2026-10-20), returns empty
-        Optional<Execution> eval1 = trigger.evaluate(conditionContext, triggerContext);
+        var eval1 = trigger.evaluate(conditionContext, triggerContext);
         assertThat(eval1.isEmpty(), is(true));
 
-        // 2. Add a new dashboard updated on 2026-10-31
         server.addDashboard(3, "Real-time Sales", "2026-10-31T08:00:00Z");
 
-        // 3. Second evaluation: detects new dashboard, returns Execution
-        Optional<Execution> eval2 = trigger.evaluate(conditionContext, triggerContext);
+        var eval2 = trigger.evaluate(conditionContext, triggerContext);
         assertThat(eval2.isPresent(), is(true));
-        Execution execution = eval2.get();
+        var execution = eval2.get();
         assertThat(execution.getTrigger(), notNullValue());
         @SuppressWarnings("unchecked")
         var triggerVariables = (Map<String, Object>) execution.getTrigger().getVariables();
         assertThat(triggerVariables.get("size"), is(1));
 
-        // 4. Third evaluation: no newer dashboard, returns empty
-        Optional<Execution> eval3 = trigger.evaluate(conditionContext, triggerContext);
+        var eval3 = trigger.evaluate(conditionContext, triggerContext);
         assertThat(eval3.isEmpty(), is(true));
     }
 
@@ -167,7 +160,7 @@ class DashboardsTest {
     }
 
     @Test
-    void firstDashboardFiresWhenTriggerStartedWithNone() throws Exception {
+    void firstDashboardFiresWhenNoneExistedAtStart() throws Exception {
         server.clearDashboards();
         var tenantId = IdUtils.create();
         var namespace = "io.kestra.%s".formatted(IdUtils.create());
@@ -185,7 +178,7 @@ class DashboardsTest {
 
     private ConditionContext conditionContext(Flow flow, Trigger trigger, TriggerContext triggerContext) throws Exception {
         var runContext = runContextFactory.of(flow, trigger);
-        runContext = runContextFactory.initializer().forScheduler((io.kestra.core.runners.DefaultRunContext) runContext, triggerContext, trigger);
+        runContext = runContextFactory.initializer().forScheduler((DefaultRunContext) runContext, triggerContext, trigger);
         return ConditionContext.builder().runContext(runContext).flow(flow).build();
     }
 }

@@ -21,7 +21,9 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MetabaseClient implements Closeable {
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
@@ -32,12 +34,10 @@ public class MetabaseClient implements Closeable {
     private final String apiKey;
     private final boolean isSessionOwned;
     private final HttpClient httpClient;
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private String sessionToken;
 
-    /**
-     * Exactly one of {@code apiKey}, {@code sessionToken} or {@code username} with {@code password} must be set.
-     * A session opened from the username and password is deleted on {@link #close()}.
-     */
+    // A session opened from username and password is deleted on close().
     public MetabaseClient(
         RunContext runContext,
         String baseUrl,
@@ -108,12 +108,12 @@ public class MetabaseClient implements Closeable {
         return send(baseRequestBuilder(path, "GET").build()).getBody();
     }
 
-    public <T> T get(String path, Class<T> clazz) throws Exception {
-        return parse(get(path), clazz, path);
+    public List<Map<String, Object>> getList(String path) throws Exception {
+        return MAPPER.readValue(requireBody(get(path), path), new TypeReference<>() {});
     }
 
-    public <T> T get(String path, TypeReference<T> typeRef) throws Exception {
-        return parse(get(path), typeRef, path);
+    public Map<String, Object> getMap(String path) throws Exception {
+        return MAPPER.readValue(requireBody(get(path), path), new TypeReference<>() {});
     }
 
     public String post(String path, Object body) throws Exception {
@@ -132,9 +132,6 @@ public class MetabaseClient implements Closeable {
         void accept(InputStream stream) throws IOException;
     }
 
-    /**
-     * POSTs a form and hands the response body to {@code handler} without buffering it.
-     */
     public void postFormStream(String path, Map<String, Object> form, StreamHandler handler) throws Exception {
         var request = baseRequestBuilder(path, "POST")
             .body(HttpRequest.UrlEncodedRequestBody.of(form))
@@ -189,10 +186,6 @@ public class MetabaseClient implements Closeable {
         return MAPPER.readValue(requireBody(body, path), clazz);
     }
 
-    private static <T> T parse(String body, TypeReference<T> typeRef, String path) throws IOException {
-        return MAPPER.readValue(requireBody(body, path), typeRef);
-    }
-
     private static String requireBody(String body, String path) {
         if (StringUtils.isBlank(body)) {
             throw new IllegalStateException("Received an empty response from the Metabase API for %s. Check the Metabase server logs.".formatted(path));
@@ -221,6 +214,9 @@ public class MetabaseClient implements Closeable {
 
     @Override
     public void close() throws IOException {
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
+        }
         try {
             if (this.isSessionOwned && StringUtils.isNotBlank(this.sessionToken)) {
                 deleteSession();

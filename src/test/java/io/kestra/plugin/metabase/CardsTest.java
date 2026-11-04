@@ -3,21 +3,24 @@ package io.kestra.plugin.metabase;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.common.FetchType;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.plugin.metabase.cards.Run;
 import jakarta.inject.Inject;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedInputStream;
-import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -32,7 +35,7 @@ class CardsTest {
     private MetabaseMockServer server;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() {
         server = new MetabaseMockServer();
     }
 
@@ -45,7 +48,7 @@ class CardsTest {
 
     @Test
     void testCardRunFetch() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -54,7 +57,7 @@ class CardsTest {
             .fetchType(Property.ofValue(FetchType.FETCH))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(2L));
         assertThat(output.getRows(), hasSize(2));
@@ -68,7 +71,7 @@ class CardsTest {
 
     @Test
     void testCardRunFetchOne() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -77,7 +80,7 @@ class CardsTest {
             .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(1L));
         assertThat(output.getRow(), notNullValue());
@@ -89,7 +92,7 @@ class CardsTest {
 
     @Test
     void testCardRunStore() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -98,7 +101,7 @@ class CardsTest {
             .fetchType(Property.ofValue(FetchType.STORE))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(3L));
         assertThat(output.getUri(), notNullValue());
@@ -120,7 +123,7 @@ class CardsTest {
 
     @Test
     void testCardRunNone() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -129,7 +132,7 @@ class CardsTest {
             .fetchType(Property.ofValue(FetchType.NONE))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(2L));
         assertThat(output.getRow(), nullValue());
@@ -187,7 +190,7 @@ class CardsTest {
 
         var request = server.getRecordedRequests().getFirst();
         assertThat(request.path(), is("/api/card/10/query/json"));
-        assertThat(request.headers().get("Content-Type").getFirst(), startsWith("application/x-www-form-urlencoded"));
+        assertThat(request.headers().get("content-type"), startsWith("application/x-www-form-urlencoded"));
         assertThat(request.body(), allOf(containsString("parameters="), containsString("format_rows=false")));
     }
 
@@ -203,5 +206,62 @@ class CardsTest {
         var output = task.run(runContextFactory.of(Map.of()));
 
         assertThat(output.getSize(), is((long) MetabaseMockServer.EXPORT_ROWS));
+    }
+
+    @Test
+    void testCardRunStoreFailedExportThrowsMetabaseError() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(13))
+            .fetchType(Property.ofValue(FetchType.STORE))
+            .build();
+
+        var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(e.getMessage(), containsString("missing_table"));
+    }
+
+    @Test
+    void testTruncatedResultFailsExceptForFetchOne() throws Exception {
+        for (var fetchType : List.of(FetchType.FETCH, FetchType.NONE)) {
+            var task = Run.builder()
+                .url(Property.ofValue(server.getUrl()))
+                .apiKey(Property.ofValue("test-api-key"))
+                .cardId(Property.ofValue(14))
+                .fetchType(Property.ofValue(fetchType))
+                .build();
+
+            var e = assertThrows(IllegalStateException.class, () -> task.run(runContextFactory.of(Map.of())));
+            assertThat(e.getMessage(), containsString("STORE"));
+        }
+
+        var fetchOne = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(14))
+            .fetchType(Property.ofValue(FetchType.FETCH_ONE))
+            .build();
+        assertThat(fetchOne.run(runContextFactory.of(Map.of())).getRow().get("id"), is(1));
+    }
+
+    @Test
+    void testKillAbortsInFlightRequest() throws Exception {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(MetabaseMockServer.SLOW_CARD_ID))
+            .build();
+
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var result = executor.submit(() -> task.run(runContextFactory.of(Map.of())));
+            Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> !server.getRecordedRequests().isEmpty());
+
+            task.kill();
+
+            assertThrows(ExecutionException.class, () -> result.get(5, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }

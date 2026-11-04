@@ -15,25 +15,29 @@ public class QueryOutput implements Output {
 
     @Schema(
         title = "A single row",
-        description = "Returned when `fetchType` is set to `FETCH_ONE`."
+        description = """
+            Returned when `fetchType` is set to `FETCH_ONE`."""
     )
     private final Map<String, Object> row;
 
     @Schema(
         title = "List of rows",
-        description = "Returned when `fetchType` is set to `FETCH`."
+        description = """
+            Returned when `fetchType` is set to `FETCH`."""
     )
     private final List<Map<String, Object>> rows;
 
     @Schema(
         title = "Internal storage URI",
-        description = "Returned when `fetchType` is set to `STORE`. Contains an Amazon Ion-serialized file of the rows."
+        description = """
+            Returned when `fetchType` is set to `STORE`. Contains an Amazon Ion-serialized file of the rows."""
     )
     private final URI uri;
 
     @Schema(
         title = "Number of returned rows",
-        description = "Total number of rows returned or stored by the query."
+        description = """
+            Total number of rows returned or stored by the query."""
     )
     private final Long size;
 }

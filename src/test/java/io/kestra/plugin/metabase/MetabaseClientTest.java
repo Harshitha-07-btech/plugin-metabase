@@ -1,14 +1,12 @@
 package io.kestra.plugin.metabase;
 
 import io.kestra.core.junit.annotations.KestraTest;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +24,7 @@ class MetabaseClientTest {
     private MetabaseMockServer server;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() {
         server = new MetabaseMockServer();
     }
 
@@ -39,7 +37,7 @@ class MetabaseClientTest {
 
     @Test
     void testApiKeyAuth() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         try (MetabaseClient client = new MetabaseClient(
             runContext,
@@ -50,18 +48,18 @@ class MetabaseClientTest {
             null,
             Duration.ofSeconds(10)
         )) {
-            String response = client.get("/api/dashboard");
+            var response = client.get("/api/dashboard");
             assertThat(response, notNullValue());
 
-            List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
+            var requests = server.getRecordedRequests();
             assertThat(requests, hasSize(1));
-            assertThat(requests.getFirst().headers().get("x-api-key"), contains("secret-api-key-123"));
+            assertThat(requests.getFirst().headers().get("x-api-key"), is("secret-api-key-123"));
         }
     }
 
     @Test
     void testSessionTokenAuth() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         try (MetabaseClient client = new MetabaseClient(
             runContext,
@@ -72,18 +70,18 @@ class MetabaseClientTest {
             null,
             Duration.ofSeconds(10)
         )) {
-            String response = client.get("/api/dashboard");
+            var response = client.get("/api/dashboard");
             assertThat(response, notNullValue());
 
-            List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
+            var requests = server.getRecordedRequests();
             assertThat(requests, hasSize(1));
-            assertThat(requests.getFirst().headers().get("X-Metabase-Session"), contains("session-token-abc"));
+            assertThat(requests.getFirst().headers().get("x-metabase-session"), is("session-token-abc"));
         }
     }
 
     @Test
     void testUsernamePasswordAuthFallback() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         try (MetabaseClient client = new MetabaseClient(
             runContext,
@@ -94,15 +92,15 @@ class MetabaseClientTest {
             "password123",
             Duration.ofSeconds(10)
         )) {
-            String response = client.get("/api/dashboard");
+            var response = client.get("/api/dashboard");
             assertThat(response, notNullValue());
 
-            List<MetabaseMockServer.RecordedRequest> requests = server.getRecordedRequests();
+            var requests = server.getRecordedRequests();
             // First call was POST /api/session, second call was GET /api/dashboard
             assertThat(requests, hasSize(2));
             assertThat(requests.getFirst().path(), is("/api/session"));
             assertThat(requests.get(1).path(), is("/api/dashboard"));
-            assertThat(requests.get(1).headers().get("X-Metabase-Session"), contains("test-session-token-xyz"));
+            assertThat(requests.get(1).headers().get("x-metabase-session"), is("test-session-token-xyz"));
         }
     }
 
@@ -133,7 +131,7 @@ class MetabaseClientTest {
         assertThat(requests, hasSize(2));
         assertThat(requests.get(1).method(), is("DELETE"));
         assertThat(requests.get(1).path(), is("/api/session"));
-        assertThat(requests.get(1).headers().get("X-Metabase-Session").getFirst(), is("test-session-token-xyz"));
+        assertThat(requests.get(1).headers().get("x-metabase-session"), is("test-session-token-xyz"));
     }
 
     @Test

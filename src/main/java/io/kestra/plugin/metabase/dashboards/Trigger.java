@@ -1,6 +1,5 @@
 package io.kestra.plugin.metabase.dashboards;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -14,7 +13,6 @@ import io.kestra.core.models.triggers.TriggerOutput;
 import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
 import io.kestra.plugin.metabase.MetabaseConnectionInterface;
-import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -28,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -117,11 +116,11 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     @Schema(
         title = "HTTP request timeout",
         description = """
-            Connect and read timeout for requests made to Metabase. Defaults to 60 seconds."""
+            Connect and read timeout for each HTTP request made to Metabase. Defaults to 60 seconds."""
     )
     @PluginProperty(group = "connection")
     @Builder.Default
-    private Property<Duration> timeout = Property.ofValue(DEFAULT_TIMEOUT);
+    private Property<Duration> requestTimeout = Property.ofValue(DEFAULT_REQUEST_TIMEOUT);
 
     @Schema(
         title = "Polling interval",
@@ -158,9 +157,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             .map(kv -> kv.value() != null ? Instant.parse(kv.value().toString()) : null)
             .orElse(null);
 
-        List<DashboardResponse> dashboards;
+        List<Map<String, Object>> dashboards;
         try (var client = createClient(runContext)) {
-            dashboards = client.get("/api/dashboard", new TypeReference<List<DashboardResponse>>() {});
+            dashboards = client.getList("/api/dashboard");
         }
 
         var maxTimestamp = dashboards.stream()
@@ -202,9 +201,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         return Optional.of(generateExecution(conditionContext, context, changed));
     }
 
-    private Execution generateExecution(ConditionContext conditionContext, TriggerContext context, List<DashboardResponse> dashboards) {
-        var maps = dashboards.stream().map(DashboardResponse::toMap).toList();
-        var output = DashboardsOutput.builder().dashboards(maps).size(maps.size()).build();
+    private Execution generateExecution(ConditionContext conditionContext, TriggerContext context, List<Map<String, Object>> dashboards) {
+        var output = DashboardsOutput.builder().dashboards(dashboards).size(dashboards.size()).build();
         return TriggerService.generateExecution(this, conditionContext, context, output);
     }
 
@@ -213,8 +211,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         return "metabase_dashboards_watermark_%d_%s_%s".formatted(flowId.length(), flowId, triggerId);
     }
 
-    private static Instant timestamp(DashboardResponse dashboard) {
-        var raw = dashboard.getUpdatedAt() != null ? dashboard.getUpdatedAt() : dashboard.getCreatedAt();
-        return raw != null ? OffsetDateTime.parse(raw).toInstant() : null;
+    private static Instant timestamp(Map<String, Object> dashboard) {
+        var raw = dashboard.get("updated_at") != null ? dashboard.get("updated_at") : dashboard.get("created_at");
+        return raw != null ? OffsetDateTime.parse(raw.toString()).toInstant() : null;
     }
 }

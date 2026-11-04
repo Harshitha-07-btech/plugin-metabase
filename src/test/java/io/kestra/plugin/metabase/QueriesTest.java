@@ -3,7 +3,6 @@ package io.kestra.plugin.metabase;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.common.FetchType;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.plugin.metabase.queries.Run;
@@ -13,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +30,7 @@ class QueriesTest {
     private MetabaseMockServer server;
 
     @BeforeEach
-    void setUp() throws IOException {
+    void setUp() {
         server = new MetabaseMockServer();
     }
 
@@ -45,7 +43,7 @@ class QueriesTest {
 
     @Test
     void testQueryRunFetch() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -55,7 +53,7 @@ class QueriesTest {
             .fetchType(Property.ofValue(FetchType.FETCH))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(1L));
         assertThat(output.getRows(), hasSize(1));
@@ -64,7 +62,7 @@ class QueriesTest {
 
     @Test
     void testQueryRunFetchOne() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -74,7 +72,7 @@ class QueriesTest {
             .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(1L));
         assertThat(output.getRow(), notNullValue());
@@ -83,7 +81,7 @@ class QueriesTest {
 
     @Test
     void testQueryRunStore() throws Exception {
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
         var task = Run.builder()
             .url(Property.ofValue(server.getUrl()))
@@ -93,7 +91,7 @@ class QueriesTest {
             .fetchType(Property.ofValue(FetchType.STORE))
             .build();
 
-        QueryOutput output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getSize(), is(2L));
         assertThat(output.getUri(), notNullValue());
@@ -136,7 +134,7 @@ class QueriesTest {
 
         var request = server.getRecordedRequests().getFirst();
         assertThat(request.path(), is("/api/dataset/json"));
-        assertThat(request.headers().get("Content-Type").getFirst(), startsWith("application/x-www-form-urlencoded"));
+        assertThat(request.headers().get("content-type"), startsWith("application/x-www-form-urlencoded"));
         assertThat(request.body(), containsString("query="));
     }
 }

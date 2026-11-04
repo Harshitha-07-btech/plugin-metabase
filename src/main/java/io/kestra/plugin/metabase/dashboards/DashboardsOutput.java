@@ -8,9 +8,7 @@ import lombok.Getter;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Output of the {@code List} task and the {@code Trigger}. Top-level because the task named {@code List} shadows {@code java.util.List} in its own file.
- */
+// Top-level because the task named List shadows java.util.List in its own file.
 @Builder
 @Getter
 public class DashboardsOutput implements Output {

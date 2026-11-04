@@ -5,15 +5,12 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
-import io.kestra.plugin.metabase.models.DashboardResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
-
-import java.util.Arrays;
 
 
 @SuperBuilder
@@ -51,9 +48,7 @@ public class List extends AbstractMetabaseTask implements RunnableTask<Dashboard
         runContext.logger().info("Fetching list of Metabase dashboards");
 
         try (var client = createClient(runContext)) {
-            var dashboards = Arrays.stream(client.get("/api/dashboard", DashboardResponse[].class))
-                .map(DashboardResponse::toMap)
-                .toList();
+            var dashboards = client.getList("/api/dashboard");
 
             runContext.logger().info("Retrieved {} Metabase dashboards", dashboards.size());
 

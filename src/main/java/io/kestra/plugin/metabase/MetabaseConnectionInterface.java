@@ -5,11 +5,9 @@ import io.kestra.core.runners.RunContext;
 
 import java.time.Duration;
 
-/**
- * Connection properties and client factory shared by the tasks and the trigger, which cannot share a superclass.
- */
+// Shared by the tasks and the trigger, which cannot share a superclass.
 public interface MetabaseConnectionInterface {
-    Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+    Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(60);
 
     Property<String> getUrl();
 
@@ -21,7 +19,7 @@ public interface MetabaseConnectionInterface {
 
     Property<String> getPassword();
 
-    Property<Duration> getTimeout();
+    Property<Duration> getRequestTimeout();
 
     default MetabaseClient createClient(RunContext runContext) throws Exception {
         var rUrl = runContext.render(this.getUrl()).as(String.class)
@@ -34,7 +32,7 @@ public interface MetabaseConnectionInterface {
             runContext.render(this.getSessionToken()).as(String.class).orElse(null),
             runContext.render(this.getUsername()).as(String.class).orElse(null),
             runContext.render(this.getPassword()).as(String.class).orElse(null),
-            runContext.render(this.getTimeout()).as(Duration.class).orElse(DEFAULT_TIMEOUT)
+            runContext.render(this.getRequestTimeout()).as(Duration.class).orElse(DEFAULT_REQUEST_TIMEOUT)
         );
     }
 }

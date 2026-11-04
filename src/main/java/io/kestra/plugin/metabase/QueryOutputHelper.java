@@ -3,6 +3,8 @@ package io.kestra.plugin.metabase;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.FileSerde;
@@ -21,14 +23,11 @@ import java.util.List;
 import java.util.Map;
 
 public class QueryOutputHelper {
+    private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
     private static final String COMPLETED_STATUS = "completed";
     private static final TypeReference<LinkedHashMap<String, Object>> ROW_TYPE = new TypeReference<>() {};
 
     public static List<Map<String, Object>> parseRows(QueryResponse queryResult, FetchType fetchType) {
-        if (queryResult == null) {
-            return Collections.emptyList();
-        }
-
         // A failed query still answers HTTP 202, the failure is only visible in the body.
         if (!COMPLETED_STATUS.equals(queryResult.getStatus())) {
             var detail = queryResult.getError() != null ? queryResult.getError() : "Metabase gave no error message";
@@ -40,8 +39,8 @@ public class QueryOutputHelper {
         if (queryResult.getData() == null) {
             return Collections.emptyList();
         }
-        // Metabase caps inline results and only flags it, so FETCH would silently return a partial result.
-        if (fetchType == FetchType.FETCH && queryResult.getData().getRowsTruncated() != null) {
+        // Metabase caps inline results and only flags it, so every fetch type but FETCH_ONE would silently return a partial result.
+        if (fetchType != FetchType.FETCH_ONE && queryResult.getData().getRowsTruncated() != null) {
             throw new IllegalStateException(
                 "Metabase truncated the result to %d rows. Use `fetchType: STORE` to get every row.".formatted(queryResult.getData().getRowsTruncated())
             );
@@ -79,9 +78,6 @@ public class QueryOutputHelper {
         return records;
     }
 
-    /**
-     * Handles {@code FETCH_ONE}, {@code FETCH} and {@code NONE}. {@code STORE} goes through {@link #store}.
-     */
     public static QueryOutput processOutput(List<Map<String, Object>> rows, FetchType fetchType) {
         return switch (fetchType) {
             case FETCH_ONE -> {
@@ -94,9 +90,6 @@ public class QueryOutputHelper {
         };
     }
 
-    /**
-     * Streams a Metabase JSON export (an array of row objects) into an Ion file in internal storage.
-     */
     public static QueryOutput store(RunContext runContext, MetabaseClient client, String path, Map<String, Object> form) throws Exception {
         var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
         var rowCount = new long[1];
@@ -116,13 +109,13 @@ public class QueryOutputHelper {
             throw new IllegalStateException("Received an empty response from the Metabase API for %s. Check the Metabase server logs.".formatted(path));
         }
 
-        try (JsonParser parser = JacksonMapper.ofJson().getFactory().createParser(stream)) {
-            var mapper = JacksonMapper.ofJson();
+        try (JsonParser parser = MAPPER.getFactory().createParser(stream)) {
             var first = parser.nextToken();
 
             // Metabase answers an export that failed after start with a single error object instead of the row array.
             if (first == JsonToken.START_OBJECT) {
-                var error = mapper.<com.fasterxml.jackson.databind.JsonNode>readTree(parser).path("error").asText("Metabase gave no error message");
+                var node = MAPPER.readValue(parser, JsonNode.class);
+                var error = node.path("error").asText("Metabase gave no error message");
                 throw new IllegalStateException("Metabase export failed: %s. Fix the query or its parameters and run the task again.".formatted(error));
             }
             if (first != JsonToken.START_ARRAY) {
@@ -131,7 +124,7 @@ public class QueryOutputHelper {
 
             var count = 0L;
             while (parser.nextToken() == JsonToken.START_OBJECT) {
-                FileSerde.write(outputStream, mapper.readValue(parser, ROW_TYPE));
+                FileSerde.write(outputStream, MAPPER.readValue(parser, ROW_TYPE));
                 count++;
             }
             return count;
