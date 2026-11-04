@@ -212,6 +212,15 @@ public class MetabaseClient implements Closeable {
         return builder;
     }
 
+    /** Closes the connections at once without deleting the session, so it never blocks. Never throws. */
+    public void abort() {
+        try {
+            this.httpClient.close();
+        } catch (Exception e) {
+            runContext.logger().warn("Could not abort the Metabase request: {}", e.getMessage());
+        }
+    }
+
     @Override
     public void close() throws IOException {
         if (!isClosed.compareAndSet(false, true)) {

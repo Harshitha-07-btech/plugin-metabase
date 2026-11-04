@@ -1,5 +1,6 @@
 package io.kestra.plugin.metabase;
 
+import io.kestra.core.exceptions.KilledException;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.common.FetchType;
@@ -13,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedInputStream;
-import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -108,9 +108,8 @@ class CardsTest {
         assertThat(output.getRows(), nullValue());
         assertThat(output.getRow(), nullValue());
 
-        // Verify storage file contents with FileSerde
         var deserializedRows = new ArrayList<Object>();
-        try (InputStream is = new BufferedInputStream(runContext.storage().getFile(output.getUri()), FileSerde.BUFFER_SIZE)) {
+        try (var is = new BufferedInputStream(runContext.storage().getFile(output.getUri()), FileSerde.BUFFER_SIZE)) {
             FileSerde.read(is, deserializedRows::add);
         }
 
@@ -263,5 +262,19 @@ class CardsTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void killBeforeTheClientExistsStopsTheRun() {
+        var task = Run.builder()
+            .url(Property.ofValue(server.getUrl()))
+            .apiKey(Property.ofValue("test-api-key"))
+            .cardId(Property.ofValue(MetabaseMockServer.SLOW_CARD_ID))
+            .build();
+
+        task.kill();
+
+        assertThrows(KilledException.class, () -> task.run(runContextFactory.of(Map.of())));
+        assertThat(server.getRecordedRequests(), empty());
     }
 }

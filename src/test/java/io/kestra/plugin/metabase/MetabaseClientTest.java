@@ -8,7 +8,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -39,7 +38,7 @@ class MetabaseClientTest {
     void testApiKeyAuth() throws Exception {
         var runContext = runContextFactory.of(Map.of());
 
-        try (MetabaseClient client = new MetabaseClient(
+        try (var client = new MetabaseClient(
             runContext,
             server.getUrl(),
             "secret-api-key-123",
@@ -61,7 +60,7 @@ class MetabaseClientTest {
     void testSessionTokenAuth() throws Exception {
         var runContext = runContextFactory.of(Map.of());
 
-        try (MetabaseClient client = new MetabaseClient(
+        try (var client = new MetabaseClient(
             runContext,
             server.getUrl(),
             null,
@@ -83,7 +82,7 @@ class MetabaseClientTest {
     void testUsernamePasswordAuthFallback() throws Exception {
         var runContext = runContextFactory.of(Map.of());
 
-        try (MetabaseClient client = new MetabaseClient(
+        try (var client = new MetabaseClient(
             runContext,
             server.getUrl(),
             null,
@@ -96,7 +95,6 @@ class MetabaseClientTest {
             assertThat(response, notNullValue());
 
             var requests = server.getRecordedRequests();
-            // First call was POST /api/session, second call was GET /api/dashboard
             assertThat(requests, hasSize(2));
             assertThat(requests.getFirst().path(), is("/api/session"));
             assertThat(requests.get(1).path(), is("/api/dashboard"));

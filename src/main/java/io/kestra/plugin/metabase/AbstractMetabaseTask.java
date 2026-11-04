@@ -1,8 +1,9 @@
 package io.kestra.plugin.metabase;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.kestra.core.exceptions.KilledException;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.kestra.core.models.tasks.Task;
 import io.kestra.core.runners.RunContext;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -101,20 +102,18 @@ public abstract class AbstractMetabaseTask extends Task implements MetabaseConne
     public MetabaseClient createClient(RunContext runContext) throws Exception {
         var client = MetabaseConnectionInterface.super.createClient(runContext);
         killableClient.set(client);
+        // A kill that arrived while the client was being created found nothing to abort.
+        if (isKilled.get()) {
+            client.abort();
+            throw new KilledException("The task was killed before its Metabase request started.");
+        }
         return client;
     }
 
-    // Closing the client aborts the in-flight request so a killed execution stops waiting on Metabase.
+    // Aborting the client stops the in-flight request without waiting on Metabase.
     public void kill() {
         if (isKilled.compareAndSet(false, true)) {
-            Optional.ofNullable(killableClient.get()).ifPresent(client ->
-            {
-                try {
-                    client.close();
-                } catch (Exception e) {
-                    // kill must never throw
-                }
-            });
+            Optional.ofNullable(killableClient.get()).ifPresent(MetabaseClient::abort);
         }
     }
 }

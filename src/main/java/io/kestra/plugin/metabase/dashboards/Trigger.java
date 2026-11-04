@@ -25,6 +25,7 @@ import lombok.experimental.SuperBuilder;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -213,6 +214,15 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     private static Instant timestamp(Map<String, Object> dashboard) {
         var raw = dashboard.get("updated_at") != null ? dashboard.get("updated_at") : dashboard.get("created_at");
-        return raw != null ? OffsetDateTime.parse(raw.toString()).toInstant() : null;
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(raw.toString()).toInstant();
+        } catch (DateTimeParseException e) {
+            throw new IllegalStateException(
+                "Metabase dashboard %s has an unexpected timestamp '%s'. Expected an ISO-8601 date with an offset.".formatted(dashboard.get("id"), raw), e
+            );
+        }
     }
 }

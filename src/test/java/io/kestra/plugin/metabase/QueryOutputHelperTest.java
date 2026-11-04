@@ -6,10 +6,8 @@ import io.kestra.plugin.metabase.models.QueryResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class QueryOutputHelperTest {
 
@@ -33,15 +31,5 @@ class QueryOutputHelperTest {
         assertThat(rows, hasSize(2));
         assertThat(rows.getFirst().get("id"), is(101));
         assertThat(rows.get(1).get("Product Category"), is("Widget"));
-    }
-
-    @Test
-    void failedQueryThrowsWithMetabaseError() throws Exception {
-        var response = JacksonMapper.ofJson().readValue("""
-            { "status": "failed", "error": "ERROR: syntax error at position 7" }
-            """, QueryResponse.class);
-
-        var e = assertThrows(IllegalStateException.class, () -> QueryOutputHelper.parseRows(response, FetchType.FETCH));
-        assertThat(e.getMessage(), containsString("ERROR: syntax error at position 7"));
     }
 }

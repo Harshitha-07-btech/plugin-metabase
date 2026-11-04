@@ -10,9 +10,9 @@
 
 ## Why
 
-- What user problem does this solve? Orchestrates Metabase BI tasks (schema syncs, queries, dashboards, and triggers) natively in Kestra pipelines.
-- Why would a team adopt this plugin in a workflow? Allows automated reporting, database synchronization after ELT/dbt runs, and event-driven workflows triggered by Metabase updates.
-- What operational/business outcome does it enable? Bridges data pipelines with BI consumers, automates dashboards and cards querying, and eliminates manual Metabase syncing.
+- What user problem does this solve? Runs Metabase questions and native queries, syncs or rescans Metabase databases, and reads dashboards from a Kestra flow.
+- Why would a team adopt this plugin in a workflow? To refresh Metabase metadata after a load, export query results to internal storage, or start a flow when a dashboard is created or updated.
+- What operational/business outcome does it enable? Metabase steps run in the same flow as the pipeline that feeds them, without manual syncing.
 
 ## How
 

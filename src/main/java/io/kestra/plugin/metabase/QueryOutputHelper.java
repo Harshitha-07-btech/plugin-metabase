@@ -1,6 +1,5 @@
 package io.kestra.plugin.metabase;
 
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -94,7 +93,7 @@ public class QueryOutputHelper {
         var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
         var rowCount = new long[1];
 
-        try (OutputStream outputStream = new BufferedOutputStream(new FileOutputStream(tempFile), FileSerde.BUFFER_SIZE)) {
+        try (var outputStream = new BufferedOutputStream(new FileOutputStream(tempFile), FileSerde.BUFFER_SIZE)) {
             client.postFormStream(path, form, stream -> rowCount[0] = writeRows(stream, outputStream, path));
         }
 
@@ -109,7 +108,7 @@ public class QueryOutputHelper {
             throw new IllegalStateException("Received an empty response from the Metabase API for %s. Check the Metabase server logs.".formatted(path));
         }
 
-        try (JsonParser parser = MAPPER.getFactory().createParser(stream)) {
+        try (var parser = MAPPER.getFactory().createParser(stream)) {
             var first = parser.nextToken();
 
             // Metabase answers an export that failed after start with a single error object instead of the row array.
