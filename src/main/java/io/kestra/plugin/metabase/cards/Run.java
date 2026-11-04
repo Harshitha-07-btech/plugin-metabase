@@ -77,7 +77,6 @@ import java.util.Map;
 )
 public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutput> {
     private static final String PARAMETERS = "parameters";
-    private static final String FORMAT_ROWS = "format_rows";
 
     @Schema(
         title = "Card (question) ID",
@@ -115,15 +114,15 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
 
         runContext.logger().info("Executing saved question ID {} with fetchType {}", rCardId, rFetchType);
 
-        var rBody = new HashMap<String, Object>();
-        var rForm = new HashMap<String, Object>(Map.of(FORMAT_ROWS, false));
+        var body = new HashMap<String, Object>();
+        var exportForm = new HashMap<String, Object>();
         if (!rParameters.isEmpty()) {
-            rBody.put(PARAMETERS, rParameters);
-            rForm.put(PARAMETERS, JacksonMapper.ofJson().writeValueAsString(rParameters));
+            body.put(PARAMETERS, rParameters);
+            exportForm.put(PARAMETERS, JacksonMapper.ofJson().writeValueAsString(rParameters));
         }
 
         try (var client = createClient(runContext)) {
-            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.CARD_QUERY.formatted(rCardId), rBody, rForm);
+            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.CARD_QUERY.formatted(rCardId), body, exportForm);
         }
     }
 }

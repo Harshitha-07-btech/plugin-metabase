@@ -24,8 +24,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-// Kept as a class rather than default methods on the connection interface: a kill has to abort the one HTTP client of the run.
 public class MetabaseClient implements Closeable {
     public static final TypeReference<List<Map<String, Object>>> OBJECT_LIST = new TypeReference<>() {};
     public static final TypeReference<Map<String, Object>> OBJECT = new TypeReference<>() {};
@@ -35,7 +35,7 @@ public class MetabaseClient implements Closeable {
     private static final String API_KEY_HEADER = "x-api-key";
     private static final String SESSION_HEADER = "X-Metabase-Session";
 
-    public enum AuthMode {
+    private enum AuthMode {
         API_KEY,
         SESSION_TOKEN,
         CREDENTIALS
@@ -65,6 +65,11 @@ public class MetabaseClient implements Closeable {
             }
             return modes.getFirst();
         }
+
+        @Override
+        public String toString() {
+            return "Connection[url=%s, requestTimeout=%s]".formatted(url, requestTimeout);
+        }
     }
 
     private final RunContext runContext;
@@ -72,6 +77,7 @@ public class MetabaseClient implements Closeable {
     private final AuthMode authMode;
     private final String apiKey;
     private final HttpClient httpClient;
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private String sessionToken;
 
     // A session opened from username and password is deleted on close().
@@ -150,7 +156,7 @@ public class MetabaseClient implements Closeable {
 
     private HttpRequest.HttpRequestBuilder request(String method, String path) {
         var builder = HttpRequest.builder()
-            .uri(URI.create(this.baseUrl + path))
+            .uri(URI.create("%s%s".formatted(this.baseUrl, path)))
             .method(method)
             .addHeader("Accept", "application/json");
 
@@ -172,7 +178,8 @@ public class MetabaseClient implements Closeable {
     private static IllegalStateException translate(HttpClientResponseException e, String path) {
         var status = e.getResponse().getStatus().getCode();
         var body = e.getResponse().getBody();
-        var detail = body == null ? "" : StringUtils.abbreviate((body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : body.toString()).strip(), MAX_ERROR_DETAIL_LENGTH);
+        var text = body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : String.valueOf(body);
+        var detail = body == null ? "" : StringUtils.abbreviate(text.strip(), MAX_ERROR_DETAIL_LENGTH);
         var suffix = detail.isEmpty() ? "" : ": %s".formatted(detail);
 
         var message = switch (status) {
@@ -194,6 +201,9 @@ public class MetabaseClient implements Closeable {
 
     @Override
     public void close() throws IOException {
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
+        }
         try {
             if (authMode == AuthMode.CREDENTIALS && StringUtils.isNotBlank(this.sessionToken)) {
                 deleteSession();

@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,6 @@ public final class QueryOutputHelper {
     private QueryOutputHelper() {
     }
 
-    // The inline endpoint is capped by Metabase, the export endpoint at the same path plus EXPORT_SUFFIX is not.
     public static QueryOutput fetch(
         RunContext runContext,
         MetabaseClient client,
@@ -40,7 +40,7 @@ public final class QueryOutputHelper {
         Map<String, Object> exportForm
     ) throws Exception {
         if (fetchType == FetchType.STORE) {
-            return store(runContext, client, path + MetabaseApi.EXPORT_SUFFIX, exportForm);
+            return store(runContext, client, "%s%s".formatted(path, MetabaseApi.EXPORT_SUFFIX), exportForm);
         }
 
         var rows = parseRows(client.post(path, body, QueryResponse.class), fetchType);
@@ -109,8 +109,11 @@ public final class QueryOutputHelper {
         var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
         var rowCount = new long[1];
 
+        var exportForm = new HashMap<String, Object>(form);
+        // Raw values, not the display formatting Metabase applies by default.
+        exportForm.put("format_rows", false);
         try (var outputStream = new BufferedOutputStream(new FileOutputStream(tempFile), FileSerde.BUFFER_SIZE)) {
-            client.postFormStream(path, form, stream -> rowCount[0] = writeRows(stream, outputStream, path));
+            client.postFormStream(path, exportForm, stream -> rowCount[0] = writeRows(stream, outputStream, path));
         }
 
         return QueryOutput.builder()

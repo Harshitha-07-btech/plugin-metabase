@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
@@ -95,5 +96,12 @@ class MetabaseClientTest {
     private MetabaseClient client(String apiKey, String sessionToken, String username, String password) throws Exception {
         var connection = new MetabaseClient.Connection(server.getUrl(), apiKey, sessionToken, username, password, Duration.ofSeconds(10));
         return new MetabaseClient(runContextFactory.of(Map.of()), connection);
+    }
+
+    @Test
+    void connectionDoesNotPrintSecrets() {
+        var connection = new MetabaseClient.Connection("http://metabase", "key-123", "token-456", "user", "pass-789", Duration.ofSeconds(5));
+
+        assertThat(connection.toString(), allOf(not(containsString("key-123")), not(containsString("token-456")), not(containsString("pass-789"))));
     }
 }

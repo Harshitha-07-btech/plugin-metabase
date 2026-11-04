@@ -130,10 +130,10 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
             "native", Map.of("query", rQuery, "template-tags", rTemplateTags)
         );
 
-        var rForm = Map.<String, Object>of("query", JacksonMapper.ofJson().writeValueAsString(datasetQuery), "format_rows", false);
+        var exportForm = Map.<String, Object>of("query", JacksonMapper.ofJson().writeValueAsString(datasetQuery));
 
         try (var client = createClient(runContext)) {
-            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.DATASET, datasetQuery, rForm);
+            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.DATASET, datasetQuery, exportForm);
         }
     }
 }

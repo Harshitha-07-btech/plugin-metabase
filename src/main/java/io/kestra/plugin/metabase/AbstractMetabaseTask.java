@@ -104,7 +104,7 @@ public abstract class AbstractMetabaseTask extends Task implements MetabaseConne
         killableClient.set(client);
         // A kill that arrived while the client was being created found nothing to abort.
         if (isKilled.get()) {
-            client.abort();
+            client.close();
             throw new KilledException("The task was killed before its Metabase request started.");
         }
         return client;

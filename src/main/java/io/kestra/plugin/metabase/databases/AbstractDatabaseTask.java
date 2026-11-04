@@ -25,7 +25,6 @@ import java.util.Map;
 public abstract class AbstractDatabaseTask extends AbstractMetabaseTask implements RunnableTask<VoidOutput> {
     private static final String OK_STATUS = "ok";
 
-
     @Schema(
         title = "Database ID",
         description = """
@@ -46,9 +45,10 @@ public abstract class AbstractDatabaseTask extends AbstractMetabaseTask implemen
         var path = MetabaseApi.DATABASE_ACTION.formatted(rDatabaseId, action());
         try (var client = createClient(runContext)) {
             var response = client.post(path, null, Map.class);
-            if (!OK_STATUS.equals(response.get("status"))) {
+            var status = response.get("status");
+            if (!OK_STATUS.equals(status)) {
                 throw new IllegalStateException(
-                    "Metabase answered %s with status '%s' instead of 'ok'. Check the database id and the Metabase server logs.".formatted(path, response.get("status"))
+                    "Metabase answered %s with status '%s' instead of '%s'. Check the database id and the Metabase server logs.".formatted(path, status, OK_STATUS)
                 );
             }
         }
