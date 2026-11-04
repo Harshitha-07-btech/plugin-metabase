@@ -7,6 +7,8 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
+import io.kestra.plugin.metabase.MetabaseApi;
+import io.kestra.plugin.metabase.MetabaseClient;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -67,7 +69,7 @@ public class Get extends AbstractMetabaseTask implements RunnableTask<Get.Output
         runContext.logger().info("Fetching Metabase dashboard ID {}", rDashboardId);
 
         try (var client = createClient(runContext)) {
-            var response = client.getMap("/api/dashboard/%d".formatted(rDashboardId));
+            var response = client.get(MetabaseApi.DASHBOARD.formatted(rDashboardId), MetabaseClient.OBJECT);
 
             var dashboard = new LinkedHashMap<>(response);
             var dashcards = dashboard.remove("dashcards");

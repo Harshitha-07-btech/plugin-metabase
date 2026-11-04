@@ -9,9 +9,9 @@ import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
+import io.kestra.plugin.metabase.MetabaseApi;
 import io.kestra.plugin.metabase.QueryOutput;
 import io.kestra.plugin.metabase.QueryOutputHelper;
-import io.kestra.plugin.metabase.models.QueryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -130,18 +130,10 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
             "native", Map.of("query", rQuery, "template-tags", rTemplateTags)
         );
 
-        try (var client = createClient(runContext)) {
-            if (rFetchType == FetchType.STORE) {
-                var form = Map.<String, Object>of(
-                    "query", JacksonMapper.ofJson().writeValueAsString(datasetQuery),
-                    "format_rows", false
-                );
-                return QueryOutputHelper.store(runContext, client, "/api/dataset/json", form);
-            }
+        var rForm = Map.<String, Object>of("query", JacksonMapper.ofJson().writeValueAsString(datasetQuery), "format_rows", false);
 
-            var records = QueryOutputHelper.parseRows(client.post("/api/dataset", datasetQuery, QueryResponse.class), rFetchType);
-            runContext.logger().debug("Extracted {} rows from dataset query on database ID {}", records.size(), rDatabaseId);
-            return QueryOutputHelper.processOutput(records, rFetchType);
+        try (var client = createClient(runContext)) {
+            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.DATASET, datasetQuery, rForm);
         }
     }
 }

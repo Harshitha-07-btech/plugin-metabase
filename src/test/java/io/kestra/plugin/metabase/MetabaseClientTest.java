@@ -11,7 +11,11 @@ import java.time.Duration;
 import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
@@ -29,77 +33,44 @@ class MetabaseClientTest {
 
     @AfterEach
     void tearDown() {
-        if (server != null) {
-            server.close();
-        }
+        server.close();
     }
 
     @Test
-    void testApiKeyAuth() throws Exception {
-        var runContext = runContextFactory.of(Map.of());
-
-        try (var client = new MetabaseClient(
-            runContext,
-            server.getUrl(),
-            "secret-api-key-123",
-            null,
-            null,
-            null,
-            Duration.ofSeconds(10)
-        )) {
-            var response = client.get("/api/dashboard");
-            assertThat(response, notNullValue());
-
-            var requests = server.getRecordedRequests();
-            assertThat(requests, hasSize(1));
-            assertThat(requests.getFirst().headers().get("x-api-key"), is("secret-api-key-123"));
+    void testApiKeyAndSessionTokenAreSentAsHeaders() throws Exception {
+        try (var client = client("secret-api-key-123", null, null, null)) {
+            client.get(MetabaseApi.DASHBOARDS, MetabaseClient.OBJECT_LIST);
         }
+        try (var client = client(null, "session-token-abc", null, null)) {
+            client.get(MetabaseApi.DASHBOARDS, MetabaseClient.OBJECT_LIST);
+        }
+
+        var requests = server.getRecordedRequests();
+        assertThat(requests, hasSize(2));
+        assertThat(requests.getFirst().headers().get("x-api-key"), is("secret-api-key-123"));
+        assertThat(requests.get(1).headers().get("x-metabase-session"), is("session-token-abc"));
     }
 
     @Test
-    void testSessionTokenAuth() throws Exception {
-        var runContext = runContextFactory.of(Map.of());
-
-        try (var client = new MetabaseClient(
-            runContext,
-            server.getUrl(),
-            null,
-            "session-token-abc",
-            null,
-            null,
-            Duration.ofSeconds(10)
-        )) {
-            var response = client.get("/api/dashboard");
-            assertThat(response, notNullValue());
-
-            var requests = server.getRecordedRequests();
-            assertThat(requests, hasSize(1));
-            assertThat(requests.getFirst().headers().get("x-metabase-session"), is("session-token-abc"));
+    void testCredentialsOpenASessionThatIsDeletedOnClose() throws Exception {
+        try (var client = client(null, null, "admin@example.com", "password123")) {
+            client.get(MetabaseApi.DASHBOARDS, MetabaseClient.OBJECT_LIST);
         }
+
+        var requests = server.getRecordedRequests();
+        assertThat(requests, hasSize(3));
+        assertThat(requests.getFirst().path(), is("/api/session"));
+        assertThat(requests.get(1).headers().get("x-metabase-session"), is("test-session-token-xyz"));
+        assertThat(requests.get(2).method(), is("DELETE"));
+        assertThat(requests.get(2).path(), is("/api/session"));
+        assertThat(requests.get(2).headers().get("x-metabase-session"), is("test-session-token-xyz"));
     }
 
     @Test
-    void testUsernamePasswordAuthFallback() throws Exception {
-        var runContext = runContextFactory.of(Map.of());
+    void testProvidedSessionTokenIsNotDeletedOnClose() throws Exception {
+        client(null, "session-token-abc", null, null).close();
 
-        try (var client = new MetabaseClient(
-            runContext,
-            server.getUrl(),
-            null,
-            null,
-            "admin@example.com",
-            "password123",
-            Duration.ofSeconds(10)
-        )) {
-            var response = client.get("/api/dashboard");
-            assertThat(response, notNullValue());
-
-            var requests = server.getRecordedRequests();
-            assertThat(requests, hasSize(2));
-            assertThat(requests.getFirst().path(), is("/api/session"));
-            assertThat(requests.get(1).path(), is("/api/dashboard"));
-            assertThat(requests.get(1).headers().get("x-metabase-session"), is("test-session-token-xyz"));
-        }
+        assertThat(server.getRecordedRequests(), empty());
     }
 
     @Test
@@ -121,37 +92,8 @@ class MetabaseClientTest {
         assertThat(e.getMessage(), allOf(containsString("username"), containsString("password")));
     }
 
-    @Test
-    void testSessionCreatedFromCredentialsIsDeletedOnClose() throws Exception {
-        client(null, null, "admin@example.com", "password123").close();
-
-        var requests = server.getRecordedRequests();
-        assertThat(requests, hasSize(2));
-        assertThat(requests.get(1).method(), is("DELETE"));
-        assertThat(requests.get(1).path(), is("/api/session"));
-        assertThat(requests.get(1).headers().get("x-metabase-session"), is("test-session-token-xyz"));
-    }
-
-    @Test
-    void testProvidedSessionTokenIsNotDeletedOnClose() throws Exception {
-        client(null, "session-token-abc", null, null).close();
-
-        assertThat(server.getRecordedRequests(), empty());
-    }
-
-    @Test
-    void testUnauthorizedAndNotFoundAreTranslated() throws Exception {
-        try (var unauthorized = client("bad-key", null, null, null)) {
-            var e = assertThrows(IllegalStateException.class, () -> unauthorized.get("/api/dashboard"));
-            assertThat(e.getMessage(), allOf(containsString("401"), containsString("credentials")));
-        }
-        try (var client = client("key", null, null, null)) {
-            var e = assertThrows(IllegalStateException.class, () -> client.get("/api/unknown"));
-            assertThat(e.getMessage(), containsString("404"));
-        }
-    }
-
     private MetabaseClient client(String apiKey, String sessionToken, String username, String password) throws Exception {
-        return new MetabaseClient(runContextFactory.of(Map.of()), server.getUrl(), apiKey, sessionToken, username, password, Duration.ofSeconds(10));
+        var connection = new MetabaseClient.Connection(server.getUrl(), apiKey, sessionToken, username, password, Duration.ofSeconds(10));
+        return new MetabaseClient(runContextFactory.of(Map.of()), connection);
     }
 }

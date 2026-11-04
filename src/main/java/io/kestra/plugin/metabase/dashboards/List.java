@@ -5,6 +5,8 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
+import io.kestra.plugin.metabase.MetabaseApi;
+import io.kestra.plugin.metabase.MetabaseClient;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -48,7 +50,7 @@ public class List extends AbstractMetabaseTask implements RunnableTask<Dashboard
         runContext.logger().info("Fetching list of Metabase dashboards");
 
         try (var client = createClient(runContext)) {
-            var dashboards = client.getList("/api/dashboard");
+            var dashboards = client.get(MetabaseApi.DASHBOARDS, MetabaseClient.OBJECT_LIST);
 
             runContext.logger().info("Retrieved {} Metabase dashboards", dashboards.size());
 

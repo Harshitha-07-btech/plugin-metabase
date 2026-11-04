@@ -6,6 +6,7 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.VoidOutput;
 import io.kestra.core.runners.RunContext;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
+import io.kestra.plugin.metabase.MetabaseApi;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.EqualsAndHashCode;
@@ -22,6 +23,8 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 public abstract class AbstractDatabaseTask extends AbstractMetabaseTask implements RunnableTask<VoidOutput> {
+    private static final String OK_STATUS = "ok";
+
 
     @Schema(
         title = "Database ID",
@@ -40,10 +43,10 @@ public abstract class AbstractDatabaseTask extends AbstractMetabaseTask implemen
             .orElseThrow(() -> new IllegalArgumentException("Property 'databaseId' is required, set the id of the Metabase database."));
         runContext.logger().info("Running '{}' on Metabase database ID {}", action(), rDatabaseId);
 
-        var path = "/api/database/%d/%s".formatted(rDatabaseId, action());
+        var path = MetabaseApi.DATABASE_ACTION.formatted(rDatabaseId, action());
         try (var client = createClient(runContext)) {
             var response = client.post(path, null, Map.class);
-            if (!"ok".equals(response.get("status"))) {
+            if (!OK_STATUS.equals(response.get("status"))) {
                 throw new IllegalStateException(
                     "Metabase answered %s with status '%s' instead of 'ok'. Check the database id and the Metabase server logs.".formatted(path, response.get("status"))
                 );

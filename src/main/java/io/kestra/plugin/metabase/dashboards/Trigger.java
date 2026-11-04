@@ -12,6 +12,8 @@ import io.kestra.core.models.triggers.TriggerContext;
 import io.kestra.core.models.triggers.TriggerOutput;
 import io.kestra.core.models.triggers.TriggerService;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
+import io.kestra.plugin.metabase.MetabaseApi;
+import io.kestra.plugin.metabase.MetabaseClient;
 import io.kestra.plugin.metabase.MetabaseConnectionInterface;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -28,7 +30,6 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 @SuperBuilder
@@ -160,14 +161,14 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
         List<Map<String, Object>> dashboards;
         try (var client = createClient(runContext)) {
-            dashboards = client.getList("/api/dashboard");
+            dashboards = client.get(MetabaseApi.DASHBOARDS, MetabaseClient.OBJECT_LIST);
         }
 
-        var maxTimestamp = dashboards.stream()
-            .map(Trigger::timestamp)
-            .filter(Objects::nonNull)
-            .max(Instant::compareTo)
-            .orElse(null);
+        var stamped = dashboards.stream()
+            .map(dashboard -> new StampedDashboard(dashboard, timestamp(dashboard)))
+            .filter(dashboard -> dashboard.changedAt() != null)
+            .toList();
+        var maxTimestamp = stamped.stream().map(StampedDashboard::changedAt).max(Instant::compareTo).orElse(null);
         if (maxTimestamp == null) {
             // Without any dashboard yet, start from the epoch so the first one created later fires.
             if (lastWatermark == null) {
@@ -185,12 +186,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             return Optional.of(generateExecution(conditionContext, context, dashboards));
         }
 
-        var changed = dashboards.stream()
-            .filter(dashboard ->
-            {
-                var ts = timestamp(dashboard);
-                return ts != null && ts.isAfter(lastWatermark);
-            })
+        var changed = stamped.stream()
+            .filter(dashboard -> dashboard.changedAt().isAfter(lastWatermark))
+            .map(StampedDashboard::dashboard)
             .toList();
         if (changed.isEmpty()) {
             return Optional.empty();
@@ -205,6 +203,9 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     private Execution generateExecution(ConditionContext conditionContext, TriggerContext context, List<Map<String, Object>> dashboards) {
         var output = DashboardsOutput.builder().dashboards(dashboards).size(dashboards.size()).build();
         return TriggerService.generateExecution(this, conditionContext, context, output);
+    }
+
+    private record StampedDashboard(Map<String, Object> dashboard, Instant changedAt) {
     }
 
     // Length prefix keeps ("ab", "c") and ("a", "bc") from colliding on the same key.

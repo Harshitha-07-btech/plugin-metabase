@@ -41,9 +41,7 @@ class CardsTest {
 
     @AfterEach
     void tearDown() {
-        if (server != null) {
-            server.close();
-        }
+        server.close();
     }
 
     @Test

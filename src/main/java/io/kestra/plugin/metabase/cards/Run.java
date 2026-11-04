@@ -9,9 +9,9 @@ import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.plugin.metabase.AbstractMetabaseTask;
+import io.kestra.plugin.metabase.MetabaseApi;
 import io.kestra.plugin.metabase.QueryOutput;
 import io.kestra.plugin.metabase.QueryOutputHelper;
-import io.kestra.plugin.metabase.models.QueryResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -76,6 +76,8 @@ import java.util.Map;
     }
 )
 public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutput> {
+    private static final String PARAMETERS = "parameters";
+    private static final String FORMAT_ROWS = "format_rows";
 
     @Schema(
         title = "Card (question) ID",
@@ -113,24 +115,15 @@ public class Run extends AbstractMetabaseTask implements RunnableTask<QueryOutpu
 
         runContext.logger().info("Executing saved question ID {} with fetchType {}", rCardId, rFetchType);
 
-        var path = "/api/card/%d/query".formatted(rCardId);
-        try (var client = createClient(runContext)) {
-            if (rFetchType == FetchType.STORE) {
-                var form = new HashMap<String, Object>();
-                form.put("format_rows", false);
-                if (!rParameters.isEmpty()) {
-                    form.put("parameters", JacksonMapper.ofJson().writeValueAsString(rParameters));
-                }
-                return QueryOutputHelper.store(runContext, client, "%s/json".formatted(path), form);
-            }
+        var rBody = new HashMap<String, Object>();
+        var rForm = new HashMap<String, Object>(Map.of(FORMAT_ROWS, false));
+        if (!rParameters.isEmpty()) {
+            rBody.put(PARAMETERS, rParameters);
+            rForm.put(PARAMETERS, JacksonMapper.ofJson().writeValueAsString(rParameters));
+        }
 
-            var body = new HashMap<String, Object>();
-            if (!rParameters.isEmpty()) {
-                body.put("parameters", rParameters);
-            }
-            var records = QueryOutputHelper.parseRows(client.post(path, body, QueryResponse.class), rFetchType);
-            runContext.logger().debug("Extracted {} rows from saved question ID {}", records.size(), rCardId);
-            return QueryOutputHelper.processOutput(records, rFetchType);
+        try (var client = createClient(runContext)) {
+            return QueryOutputHelper.fetch(runContext, client, rFetchType, MetabaseApi.CARD_QUERY.formatted(rCardId), rBody, rForm);
         }
     }
 }

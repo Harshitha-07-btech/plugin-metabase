@@ -34,9 +34,7 @@ class QueriesTest {
 
     @AfterEach
     void tearDown() {
-        if (server != null) {
-            server.close();
-        }
+        server.close();
     }
 
     @Test

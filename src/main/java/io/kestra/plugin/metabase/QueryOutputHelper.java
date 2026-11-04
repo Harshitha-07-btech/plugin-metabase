@@ -21,15 +21,37 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public class QueryOutputHelper {
+public final class QueryOutputHelper {
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
     private static final String COMPLETED_STATUS = "completed";
+    private static final String NO_ERROR_MESSAGE = "Metabase gave no error message";
     private static final TypeReference<LinkedHashMap<String, Object>> ROW_TYPE = new TypeReference<>() {};
 
-    public static List<Map<String, Object>> parseRows(QueryResponse queryResult, FetchType fetchType) {
+    private QueryOutputHelper() {
+    }
+
+    // The inline endpoint is capped by Metabase, the export endpoint at the same path plus EXPORT_SUFFIX is not.
+    public static QueryOutput fetch(
+        RunContext runContext,
+        MetabaseClient client,
+        FetchType fetchType,
+        String path,
+        Object body,
+        Map<String, Object> exportForm
+    ) throws Exception {
+        if (fetchType == FetchType.STORE) {
+            return store(runContext, client, path + MetabaseApi.EXPORT_SUFFIX, exportForm);
+        }
+
+        var rows = parseRows(client.post(path, body, QueryResponse.class), fetchType);
+        runContext.logger().debug("Extracted {} rows from {}", rows.size(), path);
+        return processOutput(rows, fetchType);
+    }
+
+    static List<Map<String, Object>> parseRows(QueryResponse queryResult, FetchType fetchType) {
         // A failed query still answers HTTP 202, the failure is only visible in the body.
         if (!COMPLETED_STATUS.equals(queryResult.getStatus())) {
-            var detail = queryResult.getError() != null ? queryResult.getError() : "Metabase gave no error message";
+            var detail = queryResult.getError() != null ? queryResult.getError() : NO_ERROR_MESSAGE;
             throw new IllegalStateException(
                 "Metabase query ended with status '%s': %s. Fix the query or its parameters and run the task again.".formatted(queryResult.getStatus(), detail)
             );
@@ -56,14 +78,8 @@ public class QueryOutputHelper {
         var colNames = new ArrayList<String>();
         for (var i = 0; i < cols.size(); i++) {
             var col = cols.get(i);
-            var name = col.get("name") != null ? col.get("name").toString() : null;
-            if (name == null && col.get("display_name") != null) {
-                name = col.get("display_name").toString();
-            }
-            if (name == null) {
-                name = "col_%d".formatted(i);
-            }
-            colNames.add(name);
+            var name = col.get("name") != null ? col.get("name") : col.get("display_name");
+            colNames.add(name != null ? name.toString() : "col_%d".formatted(i));
         }
 
         for (var row : rows) {
@@ -77,7 +93,7 @@ public class QueryOutputHelper {
         return records;
     }
 
-    public static QueryOutput processOutput(List<Map<String, Object>> rows, FetchType fetchType) {
+    private static QueryOutput processOutput(List<Map<String, Object>> rows, FetchType fetchType) {
         return switch (fetchType) {
             case FETCH_ONE -> {
                 var singleRow = rows.isEmpty() ? null : rows.getFirst();
@@ -89,7 +105,7 @@ public class QueryOutputHelper {
         };
     }
 
-    public static QueryOutput store(RunContext runContext, MetabaseClient client, String path, Map<String, Object> form) throws Exception {
+    private static QueryOutput store(RunContext runContext, MetabaseClient client, String path, Map<String, Object> form) throws Exception {
         var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
         var rowCount = new long[1];
 
@@ -114,7 +130,7 @@ public class QueryOutputHelper {
             // Metabase answers an export that failed after start with a single error object instead of the row array.
             if (first == JsonToken.START_OBJECT) {
                 var node = MAPPER.readValue(parser, JsonNode.class);
-                var error = node.path("error").asText("Metabase gave no error message");
+                var error = node.path("error").asText(NO_ERROR_MESSAGE);
                 throw new IllegalStateException("Metabase export failed: %s. Fix the query or its parameters and run the task again.".formatted(error));
             }
             if (first != JsonToken.START_ARRAY) {

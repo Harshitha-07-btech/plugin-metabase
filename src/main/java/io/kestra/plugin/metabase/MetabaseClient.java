@@ -1,9 +1,9 @@
 package io.kestra.plugin.metabase;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.http.HttpRequest;
-import io.kestra.core.http.HttpResponse;
 import io.kestra.core.http.client.HttpClient;
 import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.http.client.configurations.HttpConfiguration;
@@ -21,52 +21,77 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
+// Kept as a class rather than default methods on the connection interface: a kill has to abort the one HTTP client of the run.
 public class MetabaseClient implements Closeable {
+    public static final TypeReference<List<Map<String, Object>>> OBJECT_LIST = new TypeReference<>() {};
+    public static final TypeReference<Map<String, Object>> OBJECT = new TypeReference<>() {};
+
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
     private static final int MAX_ERROR_DETAIL_LENGTH = 500;
+    private static final String API_KEY_HEADER = "x-api-key";
+    private static final String SESSION_HEADER = "X-Metabase-Session";
+
+    public enum AuthMode {
+        API_KEY,
+        SESSION_TOKEN,
+        CREDENTIALS
+    }
+
+    public record Connection(String url, String apiKey, String sessionToken, String username, String password, Duration requestTimeout) {
+        AuthMode authMode() {
+            var hasUsername = StringUtils.isNotBlank(username);
+            if (hasUsername != StringUtils.isNotBlank(password)) {
+                throw new IllegalArgumentException("Properties 'username' and 'password' must be set together.");
+            }
+
+            var modes = new ArrayList<AuthMode>();
+            if (StringUtils.isNotBlank(apiKey)) {
+                modes.add(AuthMode.API_KEY);
+            }
+            if (StringUtils.isNotBlank(sessionToken)) {
+                modes.add(AuthMode.SESSION_TOKEN);
+            }
+            if (hasUsername) {
+                modes.add(AuthMode.CREDENTIALS);
+            }
+            if (modes.size() != 1) {
+                throw new IllegalArgumentException(
+                    "Exactly one authentication mode is required: set 'apiKey', 'sessionToken', or both 'username' and 'password'. Found %d.".formatted(modes.size())
+                );
+            }
+            return modes.getFirst();
+        }
+    }
 
     private final RunContext runContext;
     private final String baseUrl;
+    private final AuthMode authMode;
     private final String apiKey;
-    private final boolean isSessionOwned;
     private final HttpClient httpClient;
-    private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private String sessionToken;
 
     // A session opened from username and password is deleted on close().
-    public MetabaseClient(
-        RunContext runContext,
-        String baseUrl,
-        String apiKey,
-        String sessionToken,
-        String username,
-        String password,
-        Duration timeout
-    ) throws Exception {
-        validateAuthentication(apiKey, sessionToken, username, password);
-
+    public MetabaseClient(RunContext runContext, Connection connection) throws Exception {
+        this.authMode = connection.authMode();
         this.runContext = runContext;
-        this.baseUrl = StringUtils.stripEnd(baseUrl, "/");
-        this.apiKey = apiKey;
-        this.sessionToken = sessionToken;
-        this.isSessionOwned = StringUtils.isNotBlank(username);
+        this.baseUrl = StringUtils.stripEnd(connection.url(), "/");
+        this.apiKey = connection.apiKey();
+        this.sessionToken = connection.sessionToken();
 
-        var configBuilder = HttpConfiguration.builder();
-        if (timeout != null) {
-            configBuilder.timeout(TimeoutConfiguration.builder()
-                .connectTimeout(Property.ofValue(timeout))
-                .readIdleTimeout(Property.ofValue(timeout))
-                .build());
-        }
-        this.httpClient = new HttpClient(runContext, configBuilder.build());
+        this.httpClient = new HttpClient(runContext, HttpConfiguration.builder()
+            .timeout(TimeoutConfiguration.builder()
+                .connectTimeout(Property.ofValue(connection.requestTimeout()))
+                .readIdleTimeout(Property.ofValue(connection.requestTimeout()))
+                .build())
+            .build());
 
-        if (this.isSessionOwned) {
+        if (authMode == AuthMode.CREDENTIALS) {
             try {
-                openSession(username, password);
+                openSession(connection.username(), connection.password());
             } catch (Exception e) {
                 this.httpClient.close();
                 throw e;
@@ -74,57 +99,13 @@ public class MetabaseClient implements Closeable {
         }
     }
 
-    private static void validateAuthentication(String apiKey, String sessionToken, String username, String password) {
-        var hasUsername = StringUtils.isNotBlank(username);
-        var hasPassword = StringUtils.isNotBlank(password);
-        if (hasUsername != hasPassword) {
-            throw new IllegalArgumentException("Properties 'username' and 'password' must be set together.");
-        }
-
-        var modes = (StringUtils.isNotBlank(apiKey) ? 1 : 0) + (StringUtils.isNotBlank(sessionToken) ? 1 : 0) + (hasUsername ? 1 : 0);
-        if (modes != 1) {
-            throw new IllegalArgumentException(
-                "Exactly one authentication mode is required: set 'apiKey', 'sessionToken', or both 'username' and 'password'. Found %d.".formatted(modes)
-            );
-        }
+    public <T> T get(String path, TypeReference<T> type) throws Exception {
+        return parse(send(request("GET", path).build()), MAPPER.getTypeFactory().constructType(type), path);
     }
 
-    private void openSession(String username, String password) throws Exception {
-        var request = HttpRequest.builder()
-            .uri(buildUri("/api/session"))
-            .method("POST")
-            .body(HttpRequest.JsonRequestBody.of(Map.of("username", username, "password", password)))
-            .build();
-
-        var session = parse(send(request).getBody(), SessionResponse.class, "/api/session");
-        if (StringUtils.isBlank(session.getId())) {
-            throw new IllegalStateException("Metabase did not return a session id for the given username and password, check the credentials.");
-        }
-        this.sessionToken = session.getId();
-        runContext.logger().debug("Opened a Metabase session.");
-    }
-
-    public String get(String path) throws Exception {
-        return send(baseRequestBuilder(path, "GET").build()).getBody();
-    }
-
-    public List<Map<String, Object>> getList(String path) throws Exception {
-        return MAPPER.readValue(requireBody(get(path), path), new TypeReference<>() {});
-    }
-
-    public Map<String, Object> getMap(String path) throws Exception {
-        return MAPPER.readValue(requireBody(get(path), path), new TypeReference<>() {});
-    }
-
-    public String post(String path, Object body) throws Exception {
-        var request = baseRequestBuilder(path, "POST")
-            .body(HttpRequest.JsonRequestBody.of(body != null ? body : Map.of()))
-            .build();
-        return send(request).getBody();
-    }
-
-    public <T> T post(String path, Object body, Class<T> clazz) throws Exception {
-        return parse(post(path, body), clazz, path);
+    public <T> T post(String path, Object body, Class<T> type) throws Exception {
+        var request = request("POST", path).body(HttpRequest.JsonRequestBody.of(body != null ? body : Map.of())).build();
+        return parse(send(request), MAPPER.getTypeFactory().constructType(type), path);
     }
 
     @FunctionalInterface
@@ -133,9 +114,7 @@ public class MetabaseClient implements Closeable {
     }
 
     public void postFormStream(String path, Map<String, Object> form, StreamHandler handler) throws Exception {
-        var request = baseRequestBuilder(path, "POST")
-            .body(HttpRequest.UrlEncodedRequestBody.of(form))
-            .build();
+        var request = request("POST", path).body(HttpRequest.UrlEncodedRequestBody.of(form)).build();
 
         try {
             httpClient.request(request, response ->
@@ -153,17 +132,47 @@ public class MetabaseClient implements Closeable {
         }
     }
 
-    private HttpResponse<String> send(HttpRequest request) throws Exception {
+    private void openSession(String username, String password) throws Exception {
+        var session = post(MetabaseApi.SESSION, Map.of("username", username, "password", password), SessionResponse.class);
+        if (StringUtils.isBlank(session.getId())) {
+            throw new IllegalStateException("Metabase did not return a session id for the given username and password, check the credentials.");
+        }
+        this.sessionToken = session.getId();
+    }
+
+    private String send(HttpRequest request) throws Exception {
         try {
-            return httpClient.request(request, String.class);
+            return httpClient.request(request, String.class).getBody();
         } catch (HttpClientResponseException e) {
             throw translate(e, request.getUri().getPath());
         }
     }
 
+    private HttpRequest.HttpRequestBuilder request(String method, String path) {
+        var builder = HttpRequest.builder()
+            .uri(URI.create(this.baseUrl + path))
+            .method(method)
+            .addHeader("Accept", "application/json");
+
+        if (authMode == AuthMode.API_KEY) {
+            builder.addHeader(API_KEY_HEADER, this.apiKey);
+        } else if (sessionToken != null) {
+            builder.addHeader(SESSION_HEADER, this.sessionToken);
+        }
+        return builder;
+    }
+
+    private static <T> T parse(String body, JavaType type, String path) throws IOException {
+        if (StringUtils.isBlank(body)) {
+            throw new IllegalStateException("Received an empty response from the Metabase API for %s. Check the Metabase server logs.".formatted(path));
+        }
+        return MAPPER.readValue(body, type);
+    }
+
     private static IllegalStateException translate(HttpClientResponseException e, String path) {
         var status = e.getResponse().getStatus().getCode();
-        var detail = errorDetail(e.getResponse().getBody());
+        var body = e.getResponse().getBody();
+        var detail = body == null ? "" : StringUtils.abbreviate((body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : body.toString()).strip(), MAX_ERROR_DETAIL_LENGTH);
         var suffix = detail.isEmpty() ? "" : ": %s".formatted(detail);
 
         var message = switch (status) {
@@ -174,45 +183,7 @@ public class MetabaseClient implements Closeable {
         return new IllegalStateException(message, e);
     }
 
-    private static String errorDetail(Object body) {
-        if (body == null) {
-            return "";
-        }
-        var text = (body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : body.toString()).strip();
-        return StringUtils.abbreviate(text, MAX_ERROR_DETAIL_LENGTH);
-    }
-
-    private static <T> T parse(String body, Class<T> clazz, String path) throws IOException {
-        return MAPPER.readValue(requireBody(body, path), clazz);
-    }
-
-    private static String requireBody(String body, String path) {
-        if (StringUtils.isBlank(body)) {
-            throw new IllegalStateException("Received an empty response from the Metabase API for %s. Check the Metabase server logs.".formatted(path));
-        }
-        return body;
-    }
-
-    private URI buildUri(String path) {
-        return URI.create(this.baseUrl + path);
-    }
-
-    private HttpRequest.HttpRequestBuilder baseRequestBuilder(String path, String method) {
-        var builder = HttpRequest.builder()
-            .uri(buildUri(path))
-            .method(method)
-            .addHeader("Accept", "application/json");
-
-        if (StringUtils.isNotBlank(this.apiKey)) {
-            builder.addHeader("x-api-key", this.apiKey);
-        } else {
-            builder.addHeader("X-Metabase-Session", this.sessionToken);
-        }
-
-        return builder;
-    }
-
-    /** Closes the connections at once without deleting the session, so it never blocks. Never throws. */
+    // Closes the connections at once without deleting the session, so it never blocks. Never throws.
     public void abort() {
         try {
             this.httpClient.close();
@@ -223,11 +194,8 @@ public class MetabaseClient implements Closeable {
 
     @Override
     public void close() throws IOException {
-        if (!isClosed.compareAndSet(false, true)) {
-            return;
-        }
         try {
-            if (this.isSessionOwned && StringUtils.isNotBlank(this.sessionToken)) {
+            if (authMode == AuthMode.CREDENTIALS && StringUtils.isNotBlank(this.sessionToken)) {
                 deleteSession();
             }
         } finally {
@@ -237,7 +205,7 @@ public class MetabaseClient implements Closeable {
 
     private void deleteSession() {
         try {
-            send(baseRequestBuilder("/api/session", "DELETE").build());
+            send(request("DELETE", MetabaseApi.SESSION).build());
         } catch (Exception e) {
             runContext.logger().warn("Could not delete the Metabase session, it will expire on its own: {}", e.getMessage());
         }
